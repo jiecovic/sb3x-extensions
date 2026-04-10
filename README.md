@@ -45,6 +45,19 @@ pip install -e ".[dev]"
 from sb3x import MaskableRecurrentPPO
 ```
 
+`learn()` uses action masking by default. If you intentionally want the
+unmasked recurrent PPO baseline path, pass `use_masking=False`.
+
+## Related Projects
+
+- Stable-Baselines3 docs: <https://stable-baselines3.readthedocs.io/>
+- Stable-Baselines3 GitHub: <https://github.com/DLR-RM/stable-baselines3>
+- sb3-contrib docs: <https://sb3-contrib.readthedocs.io/>
+- sb3-contrib GitHub: <https://github.com/Stable-Baselines-Team/stable-baselines3-contrib>
+
+`sb3x` is unofficial and not affiliated with the Stable-Baselines3 or
+`sb3-contrib` maintainers.
+
 ## Notes
 
 Repo-local training, watch, and MiniGrid validation tooling lives under

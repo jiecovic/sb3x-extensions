@@ -194,7 +194,10 @@ def _train_and_evaluate(
     try:
         model.policy.load_state_dict(deepcopy(initial_policy_state))
         set_global_seeds(seed)
-        model.learn(total_timesteps=train_timesteps)
+        if isinstance(model, MaskableRecurrentPPO):
+            model.learn(total_timesteps=train_timesteps, use_masking=False)
+        else:
+            model.learn(total_timesteps=train_timesteps)
         summary = evaluate_deterministic_policy(
             model,
             seed=seed + 2_000,

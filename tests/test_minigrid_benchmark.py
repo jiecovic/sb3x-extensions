@@ -41,7 +41,10 @@ def test_minigrid_image_benchmark_smoke_learn(
             n_epochs=1,
         )
         assert isinstance(model.policy.features_extractor, MinigridFeaturesExtractor)
-        model.learn(total_timesteps=32)
+        if isinstance(model, MaskableRecurrentPPO):
+            model.learn(total_timesteps=32, use_masking=False)
+        else:
+            model.learn(total_timesteps=32)
     finally:
         env.close()
 

@@ -99,11 +99,11 @@ def test_predict_respects_action_masks() -> None:
     assert int(np.asarray(masked_action).item()) == 1
 
 
-def test_learn_with_masking_populates_recurrent_action_masks() -> None:
-    """Learning with masking should store the env masks in the rollout buffer."""
+def test_learn_defaults_to_masking_and_populates_recurrent_action_masks() -> None:
+    """Default learn() should store the env masks in the rollout buffer."""
     model = _build_model(MaskedBanditEnv())
 
-    model.learn(total_timesteps=4, use_masking=True)
+    model.learn(total_timesteps=4)
 
     assert model.recurrent_rollout_buffer.action_masks.shape == (4, 3)
     np.testing.assert_array_equal(
@@ -112,9 +112,9 @@ def test_learn_with_masking_populates_recurrent_action_masks() -> None:
     )
 
 
-def test_learn_with_masking_requires_env_support() -> None:
-    """Opt-in masking should fail fast when the env does not expose masks."""
+def test_learn_requires_env_support_when_masking_is_left_on() -> None:
+    """Default learn() should fail fast when the env does not expose masks."""
     model = _build_model(UnmaskedBanditEnv())
 
     with pytest.raises(ValueError, match="support action masking"):
-        model.learn(total_timesteps=4, use_masking=True)
+        model.learn(total_timesteps=4)

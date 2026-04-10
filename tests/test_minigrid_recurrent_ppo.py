@@ -34,7 +34,10 @@ def test_minigrid_memory_smoke_learn(
     env = make_minigrid_memory_vec_env(seed)
     try:
         model = build_recurrent_model(algorithm_cls, env, seed)
-        model.learn(total_timesteps=32)
+        if isinstance(model, MaskableRecurrentPPO):
+            model.learn(total_timesteps=32, use_masking=False)
+        else:
+            model.learn(total_timesteps=32)
     finally:
         env.close()
 

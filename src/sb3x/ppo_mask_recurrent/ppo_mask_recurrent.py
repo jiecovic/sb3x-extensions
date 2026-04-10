@@ -251,7 +251,7 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
         callback: BaseCallback,
         rollout_buffer: RolloutBuffer,
         n_rollout_steps: int,
-        use_masking: bool = False,
+        use_masking: bool = True,
     ) -> bool:
         """Collect experiences using the current recurrent policy."""
         assert isinstance(
@@ -311,16 +311,7 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
                 )
 
             actions = actions.cpu().numpy()
-
-            clipped_actions = actions
-            if isinstance(self.action_space, spaces.Box):
-                clipped_actions = np.clip(
-                    actions,
-                    self.action_space.low,
-                    self.action_space.high,
-                )
-
-            new_obs, rewards, dones, infos = env.step(clipped_actions)
+            new_obs, rewards, dones, infos = env.step(actions)
 
             self.num_timesteps += env.num_envs
 
@@ -564,10 +555,14 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
         log_interval: int = 1,
         tb_log_name: str = "MaskableRecurrentPPO",
         reset_num_timesteps: bool = True,
-        use_masking: bool = False,
+        use_masking: bool = True,
         progress_bar: bool = False,
     ) -> SelfMaskableRecurrentPPO:
-        """Learn and return ``self`` with the narrowed algorithm type."""
+        """Learn and return ``self`` with the narrowed algorithm type.
+
+        Masking is enabled by default, matching ``MaskablePPO`` behavior.
+        Pass ``use_masking=False`` to exercise the unmasked recurrent PPO path.
+        """
         iteration = 0
 
         total_timesteps, callback = self._setup_learn(
