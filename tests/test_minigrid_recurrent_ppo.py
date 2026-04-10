@@ -39,7 +39,7 @@ def test_minigrid_memory_smoke_learn(
         env.close()
 
 
-def test_maskable_recurrent_ppo_matches_upstream_deterministic_rollout() -> None:
+def test_local_ppo_mask_recurrent_matches_upstream_deterministic_rollout() -> None:
     """The local copied algorithm should match upstream on deterministic steps."""
     seed = 789
 

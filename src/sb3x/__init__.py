@@ -2,7 +2,7 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
-from .maskable_recurrent import MaskableRecurrentPPO
+from .ppo_mask_recurrent import MaskableRecurrentPPO
 
 try:
     __version__ = version("sb3x")

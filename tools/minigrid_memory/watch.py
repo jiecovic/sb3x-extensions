@@ -12,6 +12,9 @@ from typing import Protocol
 
 import numpy as np
 
+from sb3x import MaskableRecurrentPPO
+from sb3x.common.maskable import get_action_masks, is_masking_supported
+
 from .runs import (
     ArtifactName,
     algorithm_class_from_name,
@@ -32,6 +35,7 @@ class WatchModel(Protocol):
         state: tuple[np.ndarray, ...] | None = None,
         episode_start: np.ndarray | None = None,
         deterministic: bool = False,
+        action_masks: np.ndarray | None = None,
     ) -> tuple[np.ndarray, tuple[np.ndarray, ...] | None]: ...
 
 
@@ -47,7 +51,18 @@ class AlgorithmWatchModel:
         state: tuple[np.ndarray, ...] | None = None,
         episode_start: np.ndarray | None = None,
         deterministic: bool = False,
+        action_masks: np.ndarray | None = None,
     ) -> tuple[np.ndarray, tuple[np.ndarray, ...] | None]:
+        if action_masks is not None and isinstance(
+            self.algorithm, MaskableRecurrentPPO
+        ):
+            return self.algorithm.predict(
+                observation,
+                state=state,
+                episode_start=episode_start,
+                deterministic=deterministic,
+                action_masks=action_masks,
+            )
         return self.algorithm.predict(
             observation,
             state=state,
@@ -198,6 +213,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         episode_seed_count=_episode_seed_count(args.episodes),
         deterministic_resets=True,
         observation_mode=run_config.observation_mode,
+        mask_mode=run_config.mask_mode,
         render_mode=args.render_mode,
     )
 
@@ -231,11 +247,19 @@ def main(argv: Sequence[str] | None = None) -> None:
 
             while not done:
                 step_started_at = time.perf_counter()
+                action_masks = None
+                if (
+                    run_config.algorithm == "local"
+                    and run_config.mask_mode != "none"
+                    and is_masking_supported(env)
+                ):
+                    action_masks = get_action_masks(env)
                 action, state = loaded_model.model.predict(
                     obs,
                     state=state,
                     episode_start=episode_start,
                     deterministic=not args.stochastic,
+                    action_masks=action_masks,
                 )
                 obs, reward, terminated, truncated, _ = env.step(
                     int(np.asarray(action).item())

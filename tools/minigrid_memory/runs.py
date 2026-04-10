@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -13,7 +13,7 @@ from sb3_contrib import RecurrentPPO
 
 from sb3x import MaskableRecurrentPPO
 
-from .support import MINIGRID_MEMORY_ENV_ID, ObservationMode
+from .support import MINIGRID_MEMORY_ENV_ID, MaskMode, ObservationMode
 
 AlgorithmName = Literal["upstream", "local"]
 ArtifactName = Literal["best", "final", "latest"]
@@ -29,6 +29,7 @@ class MiniGridMemoryRunConfig:
     env_id: str
     policy: str
     observation_mode: ObservationMode
+    mask_mode: MaskMode
     seed: int
     total_timesteps: int
     n_envs: int
@@ -110,6 +111,8 @@ def load_run_config(run_dir: Path) -> MiniGridMemoryRunConfig:
         raw["observation_mode"] = (
             "image" if raw.get("policy") == "CnnLstmPolicy" else "flat"
         )
+    if "mask_mode" not in raw:
+        raw["mask_mode"] = "none"
     if "cnn_features_dim" not in raw:
         raw["cnn_features_dim"] = 0
     return MiniGridMemoryRunConfig(**raw)
@@ -152,6 +155,7 @@ def run_config_from_args(
     algorithm: AlgorithmName,
     policy: str,
     observation_mode: ObservationMode,
+    mask_mode: MaskMode,
     seed: int,
     total_timesteps: int,
     n_envs: int,
@@ -174,6 +178,7 @@ def run_config_from_args(
         env_id=MINIGRID_MEMORY_ENV_ID,
         policy=policy,
         observation_mode=observation_mode,
+        mask_mode=mask_mode,
         seed=seed,
         total_timesteps=total_timesteps,
         n_envs=n_envs,
@@ -189,7 +194,7 @@ def run_config_from_args(
         verbose=verbose,
         progress_bar=progress_bar,
         tensorboard=tensorboard,
-        created_at=datetime.now(tz=UTC).isoformat(),
+        created_at=datetime.now(tz=timezone.utc).isoformat(),
     )
 
 

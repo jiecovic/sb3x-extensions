@@ -1,8 +1,8 @@
-"""Local starting point for ``MaskableRecurrentPPO``.
+"""Local implementation of ``MaskableRecurrentPPO``.
 
-This module is intentionally derived from ``sb3_contrib.ppo_recurrent`` and is
-kept structurally close to upstream so mask-related changes can be introduced
-incrementally and reviewed clearly.
+This module stays structurally close to ``sb3_contrib``'s recurrent PPO so the
+maskable additions remain easy to diff and review. When action masks are not
+used, the algorithm should keep matching recurrent PPO behavior.
 """
 
 from copy import deepcopy
@@ -11,11 +11,6 @@ from typing import Any, ClassVar, TypeVar
 import numpy as np
 import torch as th
 from gymnasium import spaces
-from sb3_contrib.common.recurrent.buffers import (
-    RecurrentDictRolloutBuffer,
-    RecurrentRolloutBuffer,
-)
-from sb3_contrib.common.recurrent.policies import RecurrentActorCriticPolicy
 from sb3_contrib.common.recurrent.type_aliases import RNNStates
 from stable_baselines3.common.buffers import RolloutBuffer
 from stable_baselines3.common.callbacks import BaseCallback
@@ -29,38 +24,63 @@ from stable_baselines3.common.utils import (
 )
 from stable_baselines3.common.vec_env import VecEnv
 
-from .policies import CnnLstmPolicy, MlpLstmPolicy, MultiInputLstmPolicy
+from sb3x.common.maskable import get_action_masks, is_masking_supported
+
+from .buffers import (
+    MaskableRecurrentDictRolloutBuffer,
+    MaskableRecurrentRolloutBuffer,
+)
+from .policies import (
+    CnnLstmPolicy,
+    MaskableRecurrentActorCriticPolicy,
+    MlpLstmPolicy,
+    MultiInputLstmPolicy,
+)
 
 SelfMaskableRecurrentPPO = TypeVar(
     "SelfMaskableRecurrentPPO", bound="MaskableRecurrentPPO"
 )
 PolicyObs = th.Tensor | dict[str, th.Tensor]
 LSTMState = tuple[th.Tensor, th.Tensor]
+ActionMasks = np.ndarray | th.Tensor | None
 
 
 def _forward_recurrent_policy(
-    policy: RecurrentActorCriticPolicy,
+    policy: MaskableRecurrentActorCriticPolicy,
     obs: PolicyObs,
     lstm_states: RNNStates,
     episode_starts: th.Tensor,
+    action_masks: ActionMasks = None,
 ) -> tuple[th.Tensor, th.Tensor, th.Tensor, RNNStates]:
     """Isolate the weakly-typed upstream recurrent forward boundary."""
-    return policy.forward(obs, lstm_states, episode_starts)  # pyright: ignore[reportArgumentType]
+    return policy.forward(  # pyright: ignore[reportArgumentType]
+        obs,
+        lstm_states,
+        episode_starts,
+        action_masks=action_masks,
+    )
 
 
 def _evaluate_recurrent_actions(
-    policy: RecurrentActorCriticPolicy,
+    policy: MaskableRecurrentActorCriticPolicy,
     obs: PolicyObs,
     actions: th.Tensor,
     lstm_states: RNNStates,
     episode_starts: th.Tensor,
+    action_masks: ActionMasks = None,
 ) -> tuple[th.Tensor, th.Tensor, th.Tensor | None]:
     """Isolate the weakly-typed upstream recurrent action-eval boundary."""
-    return policy.evaluate_actions(obs, actions, lstm_states, episode_starts)  # pyright: ignore[reportArgumentType]
+    return policy.evaluate_actions(  # pyright: ignore[reportArgumentType]
+        obs,
+        actions,
+        lstm_states,
+        episode_starts,
+        action_masks=action_masks,
+    )
 
 
 def _predict_recurrent_values(
-    policy: RecurrentActorCriticPolicy,
+    policy: MaskableRecurrentActorCriticPolicy,
     obs: PolicyObs,
     lstm_states: LSTMState,
     episode_starts: th.Tensor,
@@ -70,13 +90,7 @@ def _predict_recurrent_values(
 
 
 class MaskableRecurrentPPO(OnPolicyAlgorithm):
-    """Recurrent PPO baseline under the target maskable algorithm name.
-
-    This currently matches the recurrent PPO behavior from ``sb3_contrib`` and
-    does not yet implement action masking. The local copy exists so the
-    maskable rollout buffer, distributions, and inference path can be added
-    directly to the algorithm code owned by this repository.
-    """
+    """Recurrent PPO with optional invalid-action masking support."""
 
     policy_aliases: ClassVar[dict[str, type[BasePolicy]]] = {
         "MlpLstmPolicy": MlpLstmPolicy,
@@ -86,7 +100,7 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
 
     def __init__(
         self,
-        policy: str | type[RecurrentActorCriticPolicy],
+        policy: str | type[MaskableRecurrentActorCriticPolicy],
         env: GymEnv | str,
         learning_rate: float | Schedule = 3e-4,
         n_steps: int = 128,
@@ -131,7 +145,6 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
             device=device,
             _init_setup_model=False,
             supported_action_spaces=(
-                spaces.Box,
                 spaces.Discrete,
                 spaces.MultiDiscrete,
                 spaces.MultiBinary,
@@ -150,19 +163,20 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
             self._setup_model()
 
     @property
-    def recurrent_policy(self) -> RecurrentActorCriticPolicy:
+    def recurrent_policy(self) -> MaskableRecurrentActorCriticPolicy:
         """Return the policy narrowed to the recurrent policy type."""
-        if not isinstance(self.policy, RecurrentActorCriticPolicy):
-            raise TypeError("Policy must subclass RecurrentActorCriticPolicy")
+        if not isinstance(self.policy, MaskableRecurrentActorCriticPolicy):
+            raise TypeError("Policy must subclass MaskableRecurrentActorCriticPolicy")
         return self.policy
 
     @property
     def recurrent_rollout_buffer(
         self,
-    ) -> RecurrentRolloutBuffer | RecurrentDictRolloutBuffer:
+    ) -> MaskableRecurrentRolloutBuffer | MaskableRecurrentDictRolloutBuffer:
         """Return the rollout buffer narrowed to the recurrent variants."""
         if not isinstance(
-            self.rollout_buffer, (RecurrentRolloutBuffer, RecurrentDictRolloutBuffer)
+            self.rollout_buffer,
+            (MaskableRecurrentRolloutBuffer, MaskableRecurrentDictRolloutBuffer),
         ):
             raise TypeError(f"{self.rollout_buffer} doesn't support recurrent policy")
         return self.rollout_buffer
@@ -172,9 +186,9 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
         self.set_random_seed(self.seed)
 
         buffer_cls = (
-            RecurrentDictRolloutBuffer
+            MaskableRecurrentDictRolloutBuffer
             if isinstance(self.observation_space, spaces.Dict)
-            else RecurrentRolloutBuffer
+            else MaskableRecurrentRolloutBuffer
         )
 
         policy = self.policy_class(
@@ -185,8 +199,8 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
             **self.policy_kwargs,
         )
         policy = policy.to(self.device)
-        if not isinstance(policy, RecurrentActorCriticPolicy):
-            raise TypeError("Policy must subclass RecurrentActorCriticPolicy")
+        if not isinstance(policy, MaskableRecurrentActorCriticPolicy):
+            raise TypeError("Policy must subclass MaskableRecurrentActorCriticPolicy")
 
         self.policy = policy
         lstm = policy.lstm_actor
@@ -237,10 +251,12 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
         callback: BaseCallback,
         rollout_buffer: RolloutBuffer,
         n_rollout_steps: int,
+        use_masking: bool = False,
     ) -> bool:
         """Collect experiences using the current recurrent policy."""
         assert isinstance(
-            rollout_buffer, (RecurrentRolloutBuffer, RecurrentDictRolloutBuffer)
+            rollout_buffer,
+            (MaskableRecurrentRolloutBuffer, MaskableRecurrentDictRolloutBuffer),
         ), f"{rollout_buffer} doesn't support recurrent policy"
 
         last_obs = self._last_obs
@@ -255,8 +271,15 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
 
         n_steps = 0
         rollout_buffer.reset()
+        action_masks = None
         if self.use_sde:
             policy.reset_noise(env.num_envs)
+
+        if use_masking and not is_masking_supported(env):
+            raise ValueError(
+                "Environment does not support action masking. Consider using an "
+                "ActionMasker wrapper or exposing action_masks()."
+            )
 
         callback.on_rollout_start()
 
@@ -277,11 +300,14 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
                     dtype=th.float32,
                     device=self.device,
                 )
+                if use_masking:
+                    action_masks = get_action_masks(env)
                 actions, values, log_probs, lstm_states = _forward_recurrent_policy(
                     policy,
                     obs_tensor,
                     lstm_states,
                     episode_starts,
+                    action_masks=action_masks,
                 )
 
             actions = actions.cpu().numpy()
@@ -343,6 +369,7 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
                 values,
                 log_probs,
                 lstm_states=self._last_lstm_states,
+                action_masks=action_masks,
             )
 
             if isinstance(new_obs, tuple):
@@ -403,7 +430,7 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
                 if isinstance(self.action_space, spaces.Discrete):
                     actions = rollout_data.actions.long().flatten()
 
-                mask = rollout_data.mask > 1e-8
+                sequence_mask = rollout_data.sequence_mask > 1e-8
 
                 values, log_prob, entropy = _evaluate_recurrent_actions(
                     policy,
@@ -411,13 +438,14 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
                     actions,
                     rollout_data.lstm_states,
                     rollout_data.episode_starts,
+                    action_masks=rollout_data.action_masks,
                 )
 
                 values = values.flatten()
                 advantages = rollout_data.advantages
                 if self.normalize_advantage:
-                    advantages = (advantages - advantages[mask].mean()) / (
-                        advantages[mask].std() + 1e-8
+                    advantages = (advantages - advantages[sequence_mask].mean()) / (
+                        advantages[sequence_mask].std() + 1e-8
                     )
 
                 ratio = th.exp(log_prob - rollout_data.old_log_prob)
@@ -428,11 +456,13 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
                     1 - clip_range,
                     1 + clip_range,
                 )
-                policy_loss = -th.mean(th.min(policy_loss_1, policy_loss_2)[mask])
+                policy_loss = -th.mean(
+                    th.min(policy_loss_1, policy_loss_2)[sequence_mask]
+                )
 
                 pg_losses.append(policy_loss.item())
                 clip_fraction = th.mean(
-                    (th.abs(ratio - 1) > clip_range).float()[mask]
+                    (th.abs(ratio - 1) > clip_range).float()[sequence_mask]
                 ).item()
                 clip_fractions.append(clip_fraction)
 
@@ -445,13 +475,15 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
                         clip_range_vf_value,
                     )
 
-                value_loss = th.mean(((rollout_data.returns - values_pred) ** 2)[mask])
+                value_loss = th.mean(
+                    ((rollout_data.returns - values_pred) ** 2)[sequence_mask]
+                )
                 value_losses.append(value_loss.item())
 
                 if entropy is None:
-                    entropy_loss = -th.mean(-log_prob[mask])
+                    entropy_loss = -th.mean(-log_prob[sequence_mask])
                 else:
-                    entropy_loss = -th.mean(entropy[mask])
+                    entropy_loss = -th.mean(entropy[sequence_mask])
 
                 entropy_losses.append(entropy_loss.item())
 
@@ -464,7 +496,7 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
                 with th.no_grad():
                     log_ratio = log_prob - rollout_data.old_log_prob
                     approx_kl_div = (
-                        th.mean(((th.exp(log_ratio) - 1) - log_ratio)[mask])
+                        th.mean(((th.exp(log_ratio) - 1) - log_ratio)[sequence_mask])
                         .cpu()
                         .numpy()
                     )
@@ -508,24 +540,72 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
         if clip_range_vf_value is not None:
             self.logger.record("train/clip_range_vf", clip_range_vf_value)
 
-    def learn(
+    def predict(  # type: ignore[override]
+        self,
+        observation: np.ndarray | dict[str, np.ndarray],
+        state: tuple[np.ndarray, ...] | None = None,
+        episode_start: np.ndarray | None = None,
+        deterministic: bool = False,
+        action_masks: np.ndarray | None = None,
+    ) -> tuple[np.ndarray, tuple[np.ndarray, ...] | None]:
+        """Predict an action, optionally constrained by invalid-action masks."""
+        return self.recurrent_policy.predict(
+            observation,
+            state=state,
+            episode_start=episode_start,
+            deterministic=deterministic,
+            action_masks=action_masks,
+        )
+
+    def learn(  # type: ignore[override]
         self: SelfMaskableRecurrentPPO,
         total_timesteps: int,
         callback: MaybeCallback = None,
         log_interval: int = 1,
         tb_log_name: str = "MaskableRecurrentPPO",
         reset_num_timesteps: bool = True,
+        use_masking: bool = False,
         progress_bar: bool = False,
     ) -> SelfMaskableRecurrentPPO:
         """Learn and return ``self`` with the narrowed algorithm type."""
-        return super().learn(
-            total_timesteps=total_timesteps,
-            callback=callback,
-            log_interval=log_interval,
-            tb_log_name=tb_log_name,
-            reset_num_timesteps=reset_num_timesteps,
-            progress_bar=progress_bar,
+        iteration = 0
+
+        total_timesteps, callback = self._setup_learn(
+            total_timesteps,
+            callback,
+            reset_num_timesteps,
+            tb_log_name,
+            progress_bar,
         )
+        callback.on_training_start(locals(), globals())
+
+        assert self.env is not None
+
+        while self.num_timesteps < total_timesteps:
+            continue_training = self.collect_rollouts(
+                self.env,
+                callback,
+                self.rollout_buffer,
+                self.n_steps,
+                use_masking=use_masking,
+            )
+            if not continue_training:
+                break
+
+            iteration += 1
+            self._update_current_progress_remaining(
+                self.num_timesteps,
+                total_timesteps,
+            )
+
+            if log_interval is not None and iteration % log_interval == 0:
+                self.dump_logs(iteration)
+
+            self.train()
+
+        callback.on_training_end()
+
+        return self
 
     def _excluded_save_params(self) -> list[str]:
         """Exclude recurrent rollout state from persistence."""

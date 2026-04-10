@@ -21,6 +21,7 @@ def test_run_config_round_trip(tmp_path: Path) -> None:
         algorithm="local",
         policy="CnnLstmPolicy",
         observation_mode="image",
+        mask_mode="all-valid",
         seed=123,
         total_timesteps=1_000,
         n_envs=4,

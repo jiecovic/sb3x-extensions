@@ -14,6 +14,8 @@ from stable_baselines3.common.callbacks import (
     EvalCallback,
 )
 
+from sb3x import MaskableRecurrentPPO
+
 try:
     from rich.console import Console
     from rich.panel import Panel
@@ -34,6 +36,7 @@ from .runs import (
     save_run_config,
 )
 from .support import (
+    MaskMode,
     ObservationMode,
     RecurrentAlgorithm,
     benchmark_policy_kwargs,
@@ -179,6 +182,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Observation path: flat for parity checks, image for benchmark runs.",
     )
     parser.add_argument(
+        "--mask-mode",
+        choices=("none", "all-valid", "minigrid-basic"),
+        default="none",
+        help=(
+            "Masking path for the local algorithm. 'all-valid' forces the "
+            "masked code path without restricting actions; 'minigrid-basic' "
+            "masks obvious MiniGrid no-op actions."
+        ),
+    )
+    parser.add_argument(
         "--lstm-hidden-size",
         type=int,
         default=128,
@@ -259,7 +272,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     algorithm = args.algo
     observation_mode: ObservationMode = args.observation_mode
+    mask_mode: MaskMode = args.mask_mode
     algorithm_cls = algorithm_class_from_name(algorithm)
+
+    if mask_mode != "none" and algorithm != "local":
+        raise ValueError(
+            "Mask modes other than 'none' are only supported for --algo local"
+        )
 
     run_dir = (
         args.run_dir.expanduser().resolve()
@@ -278,6 +297,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         algorithm=algorithm,
         policy=policy,
         observation_mode=observation_mode,
+        mask_mode=mask_mode,
         seed=args.seed,
         total_timesteps=args.timesteps,
         n_envs=args.n_envs,
@@ -311,6 +331,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         episode_seed_count=max(args.timesteps // 16, 4_096),
         deterministic_resets=True,
         observation_mode=observation_mode,
+        mask_mode=mask_mode,
     )
     eval_env = make_minigrid_memory_vec_env(
         args.seed + 50_000,
@@ -318,6 +339,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         episode_seed_count=max(args.eval_episodes * 8, 128),
         deterministic_resets=True,
         observation_mode=observation_mode,
+        mask_mode=mask_mode,
     )
 
     try:
@@ -367,13 +389,26 @@ def main(argv: Sequence[str] | None = None) -> None:
             ]
         )
 
-        print(f"Training {algorithm} recurrent PPO into {run_paths.run_dir}")
-        progress_bar = _progress_bar_enabled(enabled=args.progress_bar)
-        model.learn(
-            total_timesteps=args.timesteps,
-            callback=callbacks,
-            progress_bar=progress_bar,
+        print(
+            f"Training {algorithm} recurrent PPO"
+            f" (mask_mode={mask_mode}) into {run_paths.run_dir}"
         )
+        progress_bar = _progress_bar_enabled(enabled=args.progress_bar)
+        if algorithm == "local":
+            if not isinstance(model, MaskableRecurrentPPO):
+                raise TypeError("Expected local algorithm to be MaskableRecurrentPPO")
+            model.learn(
+                total_timesteps=args.timesteps,
+                callback=callbacks,
+                use_masking=mask_mode != "none",
+                progress_bar=progress_bar,
+            )
+        else:
+            model.learn(
+                total_timesteps=args.timesteps,
+                callback=callbacks,
+                progress_bar=progress_bar,
+            )
         model.save(str(run_paths.final_model_path))
         print(f"Saved final model to {run_paths.final_model_path}")
     finally:

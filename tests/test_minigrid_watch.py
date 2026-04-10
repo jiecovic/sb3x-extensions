@@ -21,8 +21,9 @@ class _FakeWatchModel:
         state: tuple[np.ndarray, ...] | None = None,
         episode_start: np.ndarray | None = None,
         deterministic: bool = False,
+        action_masks: np.ndarray | None = None,
     ) -> tuple[np.ndarray, tuple[np.ndarray, ...] | None]:
-        del observation, episode_start, deterministic
+        del observation, action_masks, episode_start, deterministic
         return np.asarray([0]), state
 
 

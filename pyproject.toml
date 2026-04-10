@@ -7,7 +7,7 @@ name = "sb3x"
 version = "0.1.0"
 description = "Unofficial extensions for Stable-Baselines3 and sb3-contrib."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 keywords = ["reinforcement-learning", "stable-baselines3", "sb3", "sb3-contrib"]
@@ -15,6 +15,7 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -56,7 +57,7 @@ addopts = "-ra"
 testpaths = ["tests"]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py310"
 line-length = 88
 src = ["src", "tests", "scripts", "tools"]
 
@@ -67,6 +68,6 @@ select = ["E", "F", "I", "UP"]
 docstring-code-format = true
 
 [tool.pyright]
-pythonVersion = "3.11"
+pythonVersion = "3.10"
 include = ["src", "tests", "scripts", "tools"]
 typeCheckingMode = "basic"
