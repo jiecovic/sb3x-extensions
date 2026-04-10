@@ -52,8 +52,8 @@ def _forward_recurrent_policy(
     episode_starts: th.Tensor,
     action_masks: ActionMasks = None,
 ) -> tuple[th.Tensor, th.Tensor, th.Tensor, RNNStates]:
-    """Isolate the weakly-typed upstream recurrent forward boundary."""
-    return policy.forward(  # pyright: ignore[reportArgumentType]
+    """Isolate the weakly-typed recurrent policy call boundary."""
+    return policy(  # pyright: ignore[reportArgumentType, reportCallIssue]
         obs,
         lstm_states,
         episode_starts,
@@ -507,10 +507,10 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
                 th.nn.utils.clip_grad_norm_(policy.parameters(), self.max_grad_norm)
                 policy.optimizer.step()
 
+            self._n_updates += 1
             if not continue_training:
                 break
 
-        self._n_updates += self.n_epochs
         explained_var = explained_variance(
             rollout_buffer.values.flatten(),
             rollout_buffer.returns.flatten(),
