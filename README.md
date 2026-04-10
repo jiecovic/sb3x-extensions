@@ -45,8 +45,8 @@ pip install -e ".[dev]"
 from sb3x import MaskableRecurrentPPO
 ```
 
-`learn()` uses action masking by default. If you intentionally want the
-unmasked recurrent PPO baseline path, pass `use_masking=False`.
+The intended API style is close to `sb3-contrib`'s `MaskablePPO` and
+`RecurrentPPO`.
 
 ## Related Projects
 
