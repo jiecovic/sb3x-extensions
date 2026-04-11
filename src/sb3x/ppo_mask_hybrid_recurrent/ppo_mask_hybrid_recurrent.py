@@ -1,22 +1,16 @@
-"""Recurrent PPO wrapper for hybrid continuous/discrete actions."""
+"""Maskable recurrent PPO for hybrid continuous/discrete actions."""
 
 from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any, ClassVar, TypeVar
 
-import gymnasium as gym
 import numpy as np
 import torch as th
 from gymnasium import spaces
-from sb3_contrib.common.recurrent.buffers import (
-    RecurrentDictRolloutBuffer,
-    RecurrentRolloutBuffer,
-)
 from sb3_contrib.common.recurrent.type_aliases import RNNStates
 from stable_baselines3.common.buffers import RolloutBuffer
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.on_policy_algorithm import OnPolicyAlgorithm
 from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 from stable_baselines3.common.utils import (
@@ -27,13 +21,16 @@ from stable_baselines3.common.utils import (
 from stable_baselines3.common.vec_env import VecEnv
 from torch.nn import functional as F
 
-from sb3x.common.hybrid_action import (
-    HybridAction,
-    HybridActionSpec,
-    has_public_hybrid_action_space,
-    make_hybrid_action_spec,
-    prepare_hybrid_action_env,
-    wrap_hybrid_action_env,
+from sb3x.common.hybrid_action import HybridAction, make_hybrid_action_spec
+from sb3x.common.maskable import (
+    MaybeMasks,
+    get_action_masks,
+    is_masking_supported,
+    mask_dims_for_action_space,
+)
+from sb3x.common.maskable.recurrent_buffers import (
+    MaskableRecurrentDictRolloutBuffer,
+    MaskableRecurrentRolloutBuffer,
 )
 from sb3x.common.recurrent import (
     PolicyObs,
@@ -41,65 +38,68 @@ from sb3x.common.recurrent import (
     predict_recurrent_values,
     recurrent_hidden_state_buffer_shape,
 )
+from sb3x.ppo_hybrid_recurrent import HybridRecurrentPPO
 
 from .policies import (
     CnnLstmPolicy,
-    HybridRecurrentActorCriticPolicy,
+    MaskableHybridRecurrentActorCriticPolicy,
     MlpLstmPolicy,
     MultiInputLstmPolicy,
 )
 
-SelfHybridRecurrentPPO = TypeVar(
-    "SelfHybridRecurrentPPO",
-    bound="HybridRecurrentPPO",
+SelfMaskableHybridRecurrentPPO = TypeVar(
+    "SelfMaskableHybridRecurrentPPO",
+    bound="MaskableHybridRecurrentPPO",
 )
 
 
-def _forward_recurrent_policy(
-    policy: HybridRecurrentActorCriticPolicy,
+def _forward_maskable_recurrent_policy(
+    policy: MaskableHybridRecurrentActorCriticPolicy,
     obs: PolicyObs,
     lstm_states: RNNStates,
     episode_starts: th.Tensor,
+    action_masks: MaybeMasks = None,
 ) -> tuple[th.Tensor, th.Tensor, th.Tensor, RNNStates]:
     """Isolate the weakly-typed recurrent policy call boundary."""
     return policy.forward(
-        obs,  # pyright: ignore[reportArgumentType]
+        obs,
         lstm_states,
         episode_starts,
+        action_masks=action_masks,
     )
 
 
-def _evaluate_recurrent_actions(
-    policy: HybridRecurrentActorCriticPolicy,
+def _evaluate_maskable_recurrent_actions(
+    policy: MaskableHybridRecurrentActorCriticPolicy,
     obs: PolicyObs,
     actions: th.Tensor,
     lstm_states: RNNStates,
     episode_starts: th.Tensor,
+    action_masks: MaybeMasks = None,
 ) -> tuple[th.Tensor, th.Tensor, th.Tensor | None]:
-    """Isolate the weakly-typed upstream recurrent action-eval boundary."""
+    """Isolate the weakly-typed recurrent action-evaluation boundary."""
     return policy.evaluate_actions(
-        obs,  # pyright: ignore[reportArgumentType]
+        obs,
         actions,
         lstm_states,
         episode_starts,
+        action_masks=action_masks,
     )
 
 
-class HybridRecurrentPPO(OnPolicyAlgorithm):
-    """Recurrent PPO for ``Dict(continuous=Box, discrete=MultiDiscrete)`` actions."""
+class MaskableHybridRecurrentPPO(HybridRecurrentPPO):
+    """HybridRecurrentPPO with masks for the discrete action branch."""
 
-    algorithm_name: ClassVar[str] = "HybridRecurrentPPO"
+    algorithm_name: ClassVar[str] = "MaskableHybridRecurrentPPO"
     policy_aliases: ClassVar[dict[str, type[BasePolicy]]] = {
         "MlpLstmPolicy": MlpLstmPolicy,
         "CnnLstmPolicy": CnnLstmPolicy,
         "MultiInputLstmPolicy": MultiInputLstmPolicy,
     }
 
-    hybrid_action_spec: HybridActionSpec
-
     def __init__(
         self,
-        policy: str | type[HybridRecurrentActorCriticPolicy],
+        policy: str | type[MaskableHybridRecurrentActorCriticPolicy],
         env: GymEnv | str | None,
         learning_rate: float | Schedule = 3e-4,
         n_steps: int = 128,
@@ -124,86 +124,52 @@ class HybridRecurrentPPO(OnPolicyAlgorithm):
         device: th.device | str = "auto",
         _init_setup_model: bool = True,
     ) -> None:
-        if use_sde:
-            raise ValueError(f"{type(self).algorithm_name} does not support gSDE")
-
-        wrapped_env, hybrid_action_spec, policy_kwargs = prepare_hybrid_action_env(
-            env,
-            {} if policy_kwargs is None else policy_kwargs,
-            algorithm_name=type(self).algorithm_name,
-            init_setup_model=_init_setup_model,
-        )
-        if hybrid_action_spec is not None:
-            self.hybrid_action_spec = hybrid_action_spec
-
         super().__init__(
-            policy,
-            # SB3 load() passes env=None; _init_setup_model=False keeps that valid.
-            env=wrapped_env,  # pyright: ignore[reportArgumentType]
+            policy=policy,
+            env=env,
             learning_rate=learning_rate,
             n_steps=n_steps,
+            batch_size=batch_size,
+            n_epochs=n_epochs,
             gamma=gamma,
             gae_lambda=gae_lambda,
+            clip_range=clip_range,
+            clip_range_vf=clip_range_vf,
+            normalize_advantage=normalize_advantage,
             ent_coef=ent_coef,
             vf_coef=vf_coef,
             max_grad_norm=max_grad_norm,
-            use_sde=False,
+            use_sde=use_sde,
             sde_sample_freq=sde_sample_freq,
+            target_kl=target_kl,
             stats_window_size=stats_window_size,
             tensorboard_log=tensorboard_log,
             policy_kwargs=policy_kwargs,
             verbose=verbose,
             seed=seed,
             device=device,
-            _init_setup_model=False,
-            supported_action_spaces=(spaces.Box,),
-        )
-
-        self.batch_size = batch_size
-        self.n_epochs = n_epochs
-        self.clip_range = clip_range
-        self.clip_range_vf = clip_range_vf
-        self.normalize_advantage = normalize_advantage
-        self.target_kl = target_kl
-        self._last_lstm_states: RNNStates | None = None
-
-        if _init_setup_model:
-            self._setup_model()
-
-    @classmethod
-    def _wrap_env(
-        cls,
-        env: gym.Env | VecEnv,
-        verbose: int = 0,
-        monitor_wrapper: bool = True,
-    ) -> VecEnv:
-        """Let SB3 loading validate against the internal flat action space."""
-        wrapped_env: GymEnv = env
-        if has_public_hybrid_action_space(env):
-            wrapped_env, _ = wrap_hybrid_action_env(env)
-        return super()._wrap_env(
-            wrapped_env,
-            verbose=verbose,
-            monitor_wrapper=monitor_wrapper,
+            _init_setup_model=_init_setup_model,
         )
 
     @property
-    def recurrent_policy(self) -> HybridRecurrentActorCriticPolicy:
-        """Return the policy narrowed to the hybrid recurrent policy type."""
-        if not isinstance(self.policy, HybridRecurrentActorCriticPolicy):
-            raise TypeError("Policy must subclass HybridRecurrentActorCriticPolicy")
+    def maskable_policy(self) -> MaskableHybridRecurrentActorCriticPolicy:
+        """Return the policy narrowed to the maskable hybrid recurrent type."""
+        if not isinstance(self.policy, MaskableHybridRecurrentActorCriticPolicy):
+            raise TypeError(
+                "Policy must subclass MaskableHybridRecurrentActorCriticPolicy"
+            )
         return self.policy
 
     @property
-    def recurrent_rollout_buffer(
+    def maskable_rollout_buffer(
         self,
-    ) -> RecurrentRolloutBuffer | RecurrentDictRolloutBuffer:
-        """Return the rollout buffer narrowed to the recurrent variants."""
+    ) -> MaskableRecurrentRolloutBuffer | MaskableRecurrentDictRolloutBuffer:
+        """Return the rollout buffer narrowed to the maskable recurrent variants."""
         if not isinstance(
             self.rollout_buffer,
-            (RecurrentRolloutBuffer, RecurrentDictRolloutBuffer),
+            (MaskableRecurrentRolloutBuffer, MaskableRecurrentDictRolloutBuffer),
         ):
-            raise TypeError(f"{self.rollout_buffer} doesn't support recurrent policy")
+            raise TypeError(f"{self.rollout_buffer} does not support action masking")
         return self.rollout_buffer
 
     def _setup_model(self) -> None:
@@ -217,9 +183,9 @@ class HybridRecurrentPPO(OnPolicyAlgorithm):
         self.set_random_seed(self.seed)
 
         buffer_cls = (
-            RecurrentDictRolloutBuffer
+            MaskableRecurrentDictRolloutBuffer
             if isinstance(self.observation_space, spaces.Dict)
-            else RecurrentRolloutBuffer
+            else MaskableRecurrentRolloutBuffer
         )
 
         policy = self.policy_class(
@@ -230,8 +196,10 @@ class HybridRecurrentPPO(OnPolicyAlgorithm):
             **self.policy_kwargs,
         )
         policy = policy.to(self.device)
-        if not isinstance(policy, HybridRecurrentActorCriticPolicy):
-            raise TypeError("Policy must subclass HybridRecurrentActorCriticPolicy")
+        if not isinstance(policy, MaskableHybridRecurrentActorCriticPolicy):
+            raise TypeError(
+                "Policy must subclass MaskableHybridRecurrentActorCriticPolicy"
+            )
 
         self.policy = policy
         lstm = policy.lstm_actor
@@ -246,6 +214,7 @@ class HybridRecurrentPPO(OnPolicyAlgorithm):
             n_steps=self.n_steps,
             n_envs=self.n_envs,
         )
+        mask_dims = mask_dims_for_action_space(self.hybrid_action_spec.discrete_space)
 
         self.rollout_buffer = buffer_cls(
             self.n_steps,
@@ -256,6 +225,7 @@ class HybridRecurrentPPO(OnPolicyAlgorithm):
             gamma=self.gamma,
             gae_lambda=self.gae_lambda,
             n_envs=self.n_envs,
+            mask_dims=mask_dims,
         )
 
         self.clip_range = FloatSchedule(self.clip_range)
@@ -274,12 +244,14 @@ class HybridRecurrentPPO(OnPolicyAlgorithm):
         callback: BaseCallback,
         rollout_buffer: RolloutBuffer,
         n_rollout_steps: int,
+        use_masking: bool = True,
     ) -> bool:
-        """Collect experiences using the current recurrent hybrid policy."""
-        assert isinstance(
+        """Collect recurrent rollouts with optional discrete-branch masks."""
+        if not isinstance(
             rollout_buffer,
-            (RecurrentRolloutBuffer, RecurrentDictRolloutBuffer),
-        ), f"{rollout_buffer} doesn't support recurrent policy"
+            (MaskableRecurrentRolloutBuffer, MaskableRecurrentDictRolloutBuffer),
+        ):
+            raise TypeError(f"{rollout_buffer} does not support action masking")
 
         last_obs = self._last_obs
         assert last_obs is not None, "No previous observation was provided"
@@ -287,10 +259,17 @@ class HybridRecurrentPPO(OnPolicyAlgorithm):
         assert last_episode_starts is not None, "Episode starts were not initialized"
         assert self._last_lstm_states is not None, "LSTM state was not initialized"
 
-        policy = self.recurrent_policy
+        policy = self.maskable_policy
         policy.set_training_mode(False)
 
+        if use_masking and not is_masking_supported(env):
+            raise ValueError(
+                "Environment does not support action masking. Expose an "
+                "action_masks() method returning the discrete-branch mask."
+            )
+
         n_steps = 0
+        action_masks = None
         rollout_buffer.reset()
         callback.on_rollout_start()
 
@@ -305,11 +284,16 @@ class HybridRecurrentPPO(OnPolicyAlgorithm):
                     dtype=th.float32,
                     device=self.device,
                 )
-                actions, values, log_probs, lstm_states = _forward_recurrent_policy(
-                    policy,
-                    obs_tensor,
-                    lstm_states,
-                    episode_starts,
+                if use_masking:
+                    action_masks = get_action_masks(env)
+                actions, values, log_probs, lstm_states = (
+                    _forward_maskable_recurrent_policy(
+                        policy,
+                        obs_tensor,
+                        lstm_states,
+                        episode_starts,
+                        action_masks=action_masks,
+                    )
                 )
 
             actions = actions.cpu().numpy()
@@ -366,6 +350,7 @@ class HybridRecurrentPPO(OnPolicyAlgorithm):
                 values,
                 log_probs,
                 lstm_states=self._last_lstm_states,
+                action_masks=action_masks,
             )
 
             if isinstance(new_obs, tuple):
@@ -391,9 +376,9 @@ class HybridRecurrentPPO(OnPolicyAlgorithm):
         return True
 
     def train(self) -> None:
-        """Update policy using the currently gathered recurrent rollout buffer."""
-        policy = self.recurrent_policy
-        rollout_buffer = self.recurrent_rollout_buffer
+        """Update policy using masked recurrent rollout data."""
+        policy = self.maskable_policy
+        rollout_buffer = self.maskable_rollout_buffer
 
         policy.set_training_mode(True)
         self._update_learning_rate(policy.optimizer)
@@ -419,14 +404,15 @@ class HybridRecurrentPPO(OnPolicyAlgorithm):
         for epoch in range(self.n_epochs):
             approx_kl_divs = []
             for rollout_data in rollout_buffer.get(self.batch_size):
-                sequence_mask = rollout_data.mask > 1e-8
+                sequence_mask = rollout_data.sequence_mask > 1e-8
 
-                values, log_prob, entropy = _evaluate_recurrent_actions(
+                values, log_prob, entropy = _evaluate_maskable_recurrent_actions(
                     policy,
                     rollout_data.observations,
                     rollout_data.actions,
                     rollout_data.lstm_states,
                     rollout_data.episode_starts,
+                    action_masks=rollout_data.action_masks,
                 )
                 values = values.flatten()
 
@@ -525,41 +511,35 @@ class HybridRecurrentPPO(OnPolicyAlgorithm):
         if clip_range_vf_value is not None:
             self.logger.record("train/clip_range_vf", clip_range_vf_value)
 
-    def predict(  # pyright: ignore[reportIncompatibleMethodOverride]
+    def predict(
         self,
         observation: np.ndarray | dict[str, np.ndarray],
         state: tuple[np.ndarray, ...] | None = None,
         episode_start: np.ndarray | None = None,
         deterministic: bool = False,
+        action_masks: MaybeMasks = None,
     ) -> tuple[HybridAction | list[HybridAction], tuple[np.ndarray, ...] | None]:
-        """Predict a public hybrid action and next recurrent state."""
-        flat_action, next_state = self.recurrent_policy.predict(
+        """Predict a public hybrid action, optionally using discrete masks."""
+        flat_action, next_state = self.maskable_policy.predict(
             observation,
             state=state,
             episode_start=episode_start,
             deterministic=deterministic,
+            action_masks=action_masks,
         )
         return self._unflatten_predicted_actions(flat_action), next_state
 
-    def _unflatten_predicted_actions(
-        self,
-        actions: np.ndarray,
-    ) -> HybridAction | list[HybridAction]:
-        actions_array = np.asarray(actions, dtype=np.float32)
-        if actions_array.ndim == 1:
-            return self.hybrid_action_spec.unflatten_action(actions_array)
-        return self.hybrid_action_spec.unflatten_action_batch(actions_array)
-
-    def learn(  # pyright: ignore[reportIncompatibleMethodOverride]
-        self: SelfHybridRecurrentPPO,
+    def learn(
+        self: SelfMaskableHybridRecurrentPPO,
         total_timesteps: int,
         callback: MaybeCallback = None,
         log_interval: int = 1,
-        tb_log_name: str = "HybridRecurrentPPO",
+        tb_log_name: str = "MaskableHybridRecurrentPPO",
         reset_num_timesteps: bool = True,
+        use_masking: bool = True,
         progress_bar: bool = False,
-    ) -> SelfHybridRecurrentPPO:
-        """Learn and return ``self`` with the narrowed algorithm type."""
+    ) -> SelfMaskableHybridRecurrentPPO:
+        """Learn with discrete-branch masking enabled by default."""
         iteration = 0
 
         total_timesteps, callback = self._setup_learn(
@@ -579,6 +559,7 @@ class HybridRecurrentPPO(OnPolicyAlgorithm):
                 callback,
                 self.rollout_buffer,
                 self.n_steps,
+                use_masking=use_masking,
             )
             if not continue_training:
                 break
@@ -596,7 +577,3 @@ class HybridRecurrentPPO(OnPolicyAlgorithm):
 
         callback.on_training_end()
         return self
-
-    def _excluded_save_params(self) -> list[str]:
-        """Exclude recurrent rollout state from persistence."""
-        return super()._excluded_save_params() + ["_last_lstm_states"]  # noqa: RUF005

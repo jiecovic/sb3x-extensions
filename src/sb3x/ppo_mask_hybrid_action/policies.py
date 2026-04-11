@@ -16,10 +16,9 @@ from stable_baselines3.common.torch_layers import (
 from stable_baselines3.common.type_aliases import PyTorchObs, Schedule
 from torch import nn
 
+from sb3x.common.hybrid_action import MaskableHybridActionDistribution
 from sb3x.common.maskable import MaybeMasks
 from sb3x.ppo_hybrid_action.policies import HybridActionActorCriticPolicy
-
-from .distributions import MaskableHybridActionDistribution
 
 
 class MaskableHybridActionActorCriticPolicy(HybridActionActorCriticPolicy):
@@ -32,17 +31,11 @@ class MaskableHybridActionActorCriticPolicy(HybridActionActorCriticPolicy):
 
     def forward(
         self,
-        obs: th.Tensor,
+        obs: PyTorchObs,
         deterministic: bool = False,
         action_masks: MaybeMasks = None,
     ) -> tuple[th.Tensor, th.Tensor, th.Tensor]:
-        features = self.extract_features(obs)
-        if self.share_features_extractor:
-            latent_pi, latent_vf = self.mlp_extractor(features)
-        else:
-            pi_features, vf_features = features
-            latent_pi = self.mlp_extractor.forward_actor(pi_features)
-            latent_vf = self.mlp_extractor.forward_critic(vf_features)
+        latent_pi, latent_vf = self._extract_actor_critic_latents(obs)
 
         values = self.value_net(latent_vf)
         distribution = self._get_action_dist_from_latent(latent_pi)
@@ -110,13 +103,7 @@ class MaskableHybridActionActorCriticPolicy(HybridActionActorCriticPolicy):
         actions: th.Tensor,
         action_masks: MaybeMasks = None,
     ) -> tuple[th.Tensor, th.Tensor, th.Tensor | None]:
-        features = self.extract_features(obs)
-        if self.share_features_extractor:
-            latent_pi, latent_vf = self.mlp_extractor(features)
-        else:
-            pi_features, vf_features = features
-            latent_pi = self.mlp_extractor.forward_actor(pi_features)
-            latent_vf = self.mlp_extractor.forward_critic(vf_features)
+        latent_pi, latent_vf = self._extract_actor_critic_latents(obs)
 
         distribution = self._get_action_dist_from_latent(latent_pi)
         distribution.apply_masking(action_masks)
@@ -124,6 +111,24 @@ class MaskableHybridActionActorCriticPolicy(HybridActionActorCriticPolicy):
         values = self.value_net(latent_vf)
         entropy = distribution.entropy()
         return values, log_prob, entropy
+
+    def _extract_actor_critic_latents(
+        self,
+        obs: PyTorchObs,
+    ) -> tuple[th.Tensor, th.Tensor]:
+        features = self.extract_features(obs)
+        if self.share_features_extractor:
+            if not isinstance(features, th.Tensor):
+                raise TypeError("Expected shared feature extractor to return a tensor")
+            return self.mlp_extractor(features)
+
+        if not isinstance(features, tuple) or len(features) != 2:
+            raise TypeError("Expected separate actor and critic feature tensors")
+        pi_features, vf_features = features
+        return (
+            self.mlp_extractor.forward_actor(pi_features),
+            self.mlp_extractor.forward_critic(vf_features),
+        )
 
     def get_distribution(
         self,

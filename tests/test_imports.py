@@ -7,7 +7,15 @@ from sb3x import (
     HybridActionPPO,
     HybridRecurrentPPO,
     MaskableHybridActionPPO,
+    MaskableHybridRecurrentPPO,
     MaskableRecurrentPPO,
+)
+from sb3x.common.hybrid_action import MaskableHybridActionDistribution
+from sb3x.common.maskable import (
+    MaskableRecurrentDictRolloutBuffer,
+    MaskableRecurrentDictRolloutBufferSamples,
+    MaskableRecurrentRolloutBuffer,
+    MaskableRecurrentRolloutBufferSamples,
 )
 from sb3x.ppo_hybrid_action import (
     CnnPolicy,
@@ -32,10 +40,34 @@ from sb3x.ppo_mask_hybrid_action import (
 from sb3x.ppo_mask_hybrid_action import (
     MultiInputPolicy as MaskableHybridMultiInputPolicy,
 )
+from sb3x.ppo_mask_hybrid_action.distributions import (
+    MaskableHybridActionDistribution as LegacyMaskableHybridActionDistribution,
+)
+from sb3x.ppo_mask_hybrid_recurrent import (
+    CnnLstmPolicy as MaskableHybridRecurrentCnnLstmPolicy,
+)
+from sb3x.ppo_mask_hybrid_recurrent import (
+    MlpLstmPolicy as MaskableHybridRecurrentMlpLstmPolicy,
+)
+from sb3x.ppo_mask_hybrid_recurrent import (
+    MultiInputLstmPolicy as MaskableHybridRecurrentMultiInputLstmPolicy,
+)
 from sb3x.ppo_mask_recurrent import (
     CnnLstmPolicy,
     MlpLstmPolicy,
     MultiInputLstmPolicy,
+)
+from sb3x.ppo_mask_recurrent.buffers import (
+    MaskableRecurrentDictRolloutBuffer as LegacyMaskableRecurrentDictRolloutBuffer,
+)
+from sb3x.ppo_mask_recurrent.buffers import (
+    MaskableRecurrentRolloutBuffer as LegacyMaskableRecurrentRolloutBuffer,
+)
+from sb3x.ppo_mask_recurrent.type_aliases import (
+    MaskableRecurrentDictRolloutBufferSamples as LegacyRecurrentDictSamples,
+)
+from sb3x.ppo_mask_recurrent.type_aliases import (
+    MaskableRecurrentRolloutBufferSamples as LegacyRecurrentSamples,
 )
 
 
@@ -45,6 +77,7 @@ def test_import_smoke() -> None:
     assert sb3x.HybridActionPPO is HybridActionPPO
     assert sb3x.HybridRecurrentPPO is HybridRecurrentPPO
     assert sb3x.MaskableHybridActionPPO is MaskableHybridActionPPO
+    assert sb3x.MaskableHybridRecurrentPPO is MaskableHybridRecurrentPPO
     assert sb3x.MaskableRecurrentPPO is MaskableRecurrentPPO
     assert MlpPolicy.__name__ == "HybridActionActorCriticPolicy"
     assert CnnPolicy.__name__ == "HybridActionActorCriticCnnPolicy"
@@ -65,8 +98,27 @@ def test_import_smoke() -> None:
         HybridRecurrentMultiInputLstmPolicy.__name__
         == "HybridRecurrentMultiInputActorCriticPolicy"
     )
+    assert (
+        MaskableHybridRecurrentMlpLstmPolicy.__name__
+        == "MaskableHybridRecurrentActorCriticPolicy"
+    )
+    assert (
+        MaskableHybridRecurrentCnnLstmPolicy.__name__
+        == "MaskableHybridRecurrentActorCriticCnnPolicy"
+    )
+    assert (
+        MaskableHybridRecurrentMultiInputLstmPolicy.__name__
+        == "MaskableHybridRecurrentMultiInputActorCriticPolicy"
+    )
     assert MlpLstmPolicy.__name__ == "MaskableRecurrentActorCriticPolicy"
     assert CnnLstmPolicy.__name__ == "MaskableRecurrentActorCriticCnnPolicy"
     assert (
         MultiInputLstmPolicy.__name__ == "MaskableRecurrentMultiInputActorCriticPolicy"
     )
+    assert LegacyMaskableHybridActionDistribution is MaskableHybridActionDistribution
+    assert LegacyMaskableRecurrentRolloutBuffer is MaskableRecurrentRolloutBuffer
+    assert (
+        LegacyMaskableRecurrentDictRolloutBuffer is MaskableRecurrentDictRolloutBuffer
+    )
+    assert LegacyRecurrentSamples is MaskableRecurrentRolloutBufferSamples
+    assert LegacyRecurrentDictSamples is MaskableRecurrentDictRolloutBufferSamples

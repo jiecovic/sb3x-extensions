@@ -9,6 +9,14 @@ from .distributions import (
     MaybeMasks,
     make_masked_proba_distribution,
 )
+from .recurrent_buffers import (
+    MaskableRecurrentDictRolloutBuffer,
+    MaskableRecurrentRolloutBuffer,
+)
+from .recurrent_type_aliases import (
+    MaskableRecurrentDictRolloutBufferSamples,
+    MaskableRecurrentRolloutBufferSamples,
+)
 from .utils import (
     EXPECTED_METHOD_NAME,
     get_action_masks,
@@ -25,6 +33,10 @@ __all__ = [
     "MaskableCategoricalDistribution",
     "MaskableDistribution",
     "MaskableMultiCategoricalDistribution",
+    "MaskableRecurrentDictRolloutBuffer",
+    "MaskableRecurrentDictRolloutBufferSamples",
+    "MaskableRecurrentRolloutBuffer",
+    "MaskableRecurrentRolloutBufferSamples",
     "MaybeMasks",
     "get_action_masks",
     "is_masking_supported",

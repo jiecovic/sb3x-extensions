@@ -5,15 +5,19 @@ Stable-Baselines3 and `sb3-contrib`.
 
 The Python package name is `sb3x`.
 
-It currently contains:
+## Included PPO Variants
 
-- `MaskableRecurrentPPO`: a local combination of the ideas behind
-  `MaskablePPO` and `RecurrentPPO`.
-- `HybridActionPPO`: an experimental PPO variant for hybrid
-  `Dict(continuous=Box, discrete=MultiDiscrete)` action spaces.
-- `MaskableHybridActionPPO`: the same hybrid action setup, with masks applied
-  only to the `MultiDiscrete` branch.
-- `HybridRecurrentPPO`: recurrent PPO for the same hybrid action setup.
+The package currently focuses on PPO variants that combine ideas from
+Stable-Baselines3 PPO, `sb3-contrib`'s `MaskablePPO`, and `sb3-contrib`'s
+`RecurrentPPO`.
+
+| Variant | Main idea |
+| --- | --- |
+| `MaskableRecurrentPPO` | Recurrent PPO with invalid-action masks. |
+| `HybridActionPPO` | PPO for `Dict(continuous=Box, discrete=MultiDiscrete)` action spaces. |
+| `MaskableHybridActionPPO` | Hybrid-action PPO with masks applied only to the `MultiDiscrete` branch. |
+| `HybridRecurrentPPO` | Recurrent PPO for the same hybrid action setup. |
+| `MaskableHybridRecurrentPPO` | Hybrid-action recurrent PPO with masks applied only to the `MultiDiscrete` branch. |
 
 ## Status
 
@@ -26,8 +30,8 @@ depending on it for real work.
 ## Requirements
 
 - Python 3.10 or newer
-- `stable-baselines3`
-- `sb3-contrib`
+- `stable-baselines3` 2.8.0 or newer, below 3.0
+- `sb3-contrib` 2.8.0 or newer, below 3.0
 
 Those runtime dependencies are installed automatically when you install
 `sb3x`.
@@ -53,6 +57,7 @@ from sb3x import (
     HybridActionPPO,
     HybridRecurrentPPO,
     MaskableHybridActionPPO,
+    MaskableHybridRecurrentPPO,
     MaskableRecurrentPPO,
 )
 ```
@@ -78,6 +83,10 @@ mask convention used by `sb3-contrib`'s `MaskablePPO`.
 `HybridRecurrentPPO` uses the same hybrid action space and follows
 `sb3-contrib`'s recurrent policy API for passing recurrent state through
 `predict()`.
+
+`MaskableHybridRecurrentPPO` combines both constraints: recurrent state follows
+the same recurrent API, while `env.action_masks()` only masks the discrete
+branch.
 
 ## Related Projects
 

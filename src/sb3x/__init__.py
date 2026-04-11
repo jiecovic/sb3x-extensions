@@ -5,6 +5,7 @@ from importlib.metadata import PackageNotFoundError, version
 from .ppo_hybrid_action import HybridActionPPO
 from .ppo_hybrid_recurrent import HybridRecurrentPPO
 from .ppo_mask_hybrid_action import MaskableHybridActionPPO
+from .ppo_mask_hybrid_recurrent import MaskableHybridRecurrentPPO
 from .ppo_mask_recurrent import MaskableRecurrentPPO
 
 try:
@@ -17,5 +18,6 @@ __all__ = [
     "HybridActionPPO",
     "HybridRecurrentPPO",
     "MaskableHybridActionPPO",
+    "MaskableHybridRecurrentPPO",
     "MaskableRecurrentPPO",
 ]

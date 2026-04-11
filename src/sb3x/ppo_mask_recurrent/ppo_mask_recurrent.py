@@ -25,11 +25,17 @@ from stable_baselines3.common.utils import (
 from stable_baselines3.common.vec_env import VecEnv
 
 from sb3x.common.maskable import get_action_masks, is_masking_supported
-
-from .buffers import (
+from sb3x.common.maskable.recurrent_buffers import (
     MaskableRecurrentDictRolloutBuffer,
     MaskableRecurrentRolloutBuffer,
 )
+from sb3x.common.recurrent import (
+    PolicyObs,
+    make_recurrent_states,
+    predict_recurrent_values,
+    recurrent_hidden_state_buffer_shape,
+)
+
 from .policies import (
     CnnLstmPolicy,
     MaskableRecurrentActorCriticPolicy,
@@ -40,8 +46,6 @@ from .policies import (
 SelfMaskableRecurrentPPO = TypeVar(
     "SelfMaskableRecurrentPPO", bound="MaskableRecurrentPPO"
 )
-PolicyObs = th.Tensor | dict[str, th.Tensor]
-LSTMState = tuple[th.Tensor, th.Tensor]
 ActionMasks = np.ndarray | th.Tensor | None
 
 
@@ -53,7 +57,7 @@ def _forward_recurrent_policy(
     action_masks: ActionMasks = None,
 ) -> tuple[th.Tensor, th.Tensor, th.Tensor, RNNStates]:
     """Isolate the weakly-typed recurrent policy call boundary."""
-    return policy(  # pyright: ignore[reportArgumentType, reportCallIssue]
+    return policy.forward(
         obs,
         lstm_states,
         episode_starts,
@@ -70,23 +74,13 @@ def _evaluate_recurrent_actions(
     action_masks: ActionMasks = None,
 ) -> tuple[th.Tensor, th.Tensor, th.Tensor | None]:
     """Isolate the weakly-typed upstream recurrent action-eval boundary."""
-    return policy.evaluate_actions(  # pyright: ignore[reportArgumentType]
+    return policy.evaluate_actions(
         obs,
         actions,
         lstm_states,
         episode_starts,
         action_masks=action_masks,
     )
-
-
-def _predict_recurrent_values(
-    policy: MaskableRecurrentActorCriticPolicy,
-    obs: PolicyObs,
-    lstm_states: LSTMState,
-    episode_starts: th.Tensor,
-) -> th.Tensor:
-    """Isolate the weakly-typed upstream recurrent value-prediction boundary."""
-    return policy.predict_values(obs, lstm_states, episode_starts)  # pyright: ignore[reportArgumentType]
 
 
 class MaskableRecurrentPPO(OnPolicyAlgorithm):
@@ -205,23 +199,15 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
         self.policy = policy
         lstm = policy.lstm_actor
 
-        single_hidden_state_shape = (lstm.num_layers, self.n_envs, lstm.hidden_size)
-        self._last_lstm_states = RNNStates(
-            (
-                th.zeros(single_hidden_state_shape, device=self.device),
-                th.zeros(single_hidden_state_shape, device=self.device),
-            ),
-            (
-                th.zeros(single_hidden_state_shape, device=self.device),
-                th.zeros(single_hidden_state_shape, device=self.device),
-            ),
+        self._last_lstm_states = make_recurrent_states(
+            lstm,
+            n_envs=self.n_envs,
+            device=self.device,
         )
-
-        hidden_state_buffer_shape = (
-            self.n_steps,
-            lstm.num_layers,
-            self.n_envs,
-            lstm.hidden_size,
+        hidden_state_buffer_shape = recurrent_hidden_state_buffer_shape(
+            lstm,
+            n_steps=self.n_steps,
+            n_envs=self.n_envs,
         )
 
         self.rollout_buffer = buffer_cls(
@@ -344,7 +330,7 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
                             dtype=th.float32,
                             device=self.device,
                         )
-                        terminal_value = _predict_recurrent_values(
+                        terminal_value = predict_recurrent_values(
                             policy,
                             terminal_obs,
                             terminal_lstm_state,
@@ -374,7 +360,7 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
 
         with th.no_grad():
             episode_starts = th.tensor(dones, dtype=th.float32, device=self.device)
-            values = _predict_recurrent_values(
+            values = predict_recurrent_values(
                 policy,
                 obs_as_tensor(new_obs, self.device),
                 (lstm_states.vf[0], lstm_states.vf[1]),
