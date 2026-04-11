@@ -11,6 +11,8 @@ It currently contains:
   `MaskablePPO` and `RecurrentPPO`.
 - `HybridActionPPO`: an experimental PPO variant for hybrid
   `Dict(continuous=Box, discrete=MultiDiscrete)` action spaces.
+- `MaskableHybridActionPPO`: the same hybrid action setup, with masks applied
+  only to the `MultiDiscrete` branch.
 
 ## Status
 
@@ -46,7 +48,7 @@ pip install -e ".[dev]"
 ## Usage
 
 ```python
-from sb3x import HybridActionPPO, MaskableRecurrentPPO
+from sb3x import HybridActionPPO, MaskableHybridActionPPO, MaskableRecurrentPPO
 ```
 
 The intended API style is close to `sb3-contrib`'s `MaskablePPO` and
@@ -62,6 +64,10 @@ spaces.Dict(
     }
 )
 ```
+
+`MaskableHybridActionPPO` uses the same action space and expects
+`env.action_masks()` to return the flattened `MultiDiscrete` mask, matching the
+mask convention used by `sb3-contrib`'s `MaskablePPO`.
 
 ## Related Projects
 
@@ -81,4 +87,4 @@ this repository; it is not the installed library surface.
 
 ## License
 
-This project is MIT licensed. See [LICENSE](/home/thomas/projects/sb3x-extensions/LICENSE).
+This project is MIT licensed. See [LICENSE](LICENSE).

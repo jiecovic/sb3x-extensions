@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Generator
 
 import numpy as np
-from gymnasium import spaces
 from sb3_contrib.common.recurrent.buffers import (
     RecurrentDictRolloutBuffer,
     RecurrentRolloutBuffer,
@@ -14,25 +13,16 @@ from sb3_contrib.common.recurrent.buffers import (
 from sb3_contrib.common.recurrent.type_aliases import RNNStates
 from stable_baselines3.common.vec_env import VecNormalize
 
+from sb3x.common.maskable import (
+    make_all_valid_action_masks,
+    mask_dims_for_action_space,
+    reshape_action_masks,
+)
+
 from .type_aliases import (
     MaskableRecurrentDictRolloutBufferSamples,
     MaskableRecurrentRolloutBufferSamples,
 )
-
-
-def _mask_dims_for_action_space(action_space: spaces.Space) -> int:
-    """Return the flattened mask width for a supported action space."""
-    if isinstance(action_space, spaces.Discrete):
-        return int(action_space.n)
-    if isinstance(action_space, spaces.MultiDiscrete):
-        return sum(int(action_dim) for action_dim in action_space.nvec.tolist())
-    if isinstance(action_space, spaces.MultiBinary):
-        if not isinstance(action_space.n, int):
-            raise ValueError(
-                "Multi-dimensional MultiBinary action spaces are not supported"
-            )
-        return 2 * action_space.n
-    raise ValueError(f"Unsupported action space {type(action_space)}")
 
 
 class MaskableRecurrentRolloutBuffer(RecurrentRolloutBuffer):
@@ -43,10 +33,11 @@ class MaskableRecurrentRolloutBuffer(RecurrentRolloutBuffer):
 
     def reset(self) -> None:
         super().reset()
-        self.mask_dims = _mask_dims_for_action_space(self.action_space)
-        self.action_masks = np.ones(
-            (self.buffer_size, self.n_envs, self.mask_dims),
-            dtype=np.float32,
+        self.mask_dims = mask_dims_for_action_space(self.action_space)
+        self.action_masks = make_all_valid_action_masks(
+            buffer_size=self.buffer_size,
+            n_envs=self.n_envs,
+            mask_dims=self.mask_dims,
         )
 
     def add(
@@ -57,8 +48,10 @@ class MaskableRecurrentRolloutBuffer(RecurrentRolloutBuffer):
         **kwargs: object,
     ) -> None:
         if action_masks is not None:
-            self.action_masks[self.pos] = action_masks.reshape(
-                (self.n_envs, self.mask_dims)
+            self.action_masks[self.pos] = reshape_action_masks(
+                action_masks,
+                n_envs=self.n_envs,
+                mask_dims=self.mask_dims,
             )
         super().add(*args, lstm_states=lstm_states, **kwargs)
 
@@ -188,10 +181,11 @@ class MaskableRecurrentDictRolloutBuffer(RecurrentDictRolloutBuffer):
 
     def reset(self) -> None:
         super().reset()
-        self.mask_dims = _mask_dims_for_action_space(self.action_space)
-        self.action_masks = np.ones(
-            (self.buffer_size, self.n_envs, self.mask_dims),
-            dtype=np.float32,
+        self.mask_dims = mask_dims_for_action_space(self.action_space)
+        self.action_masks = make_all_valid_action_masks(
+            buffer_size=self.buffer_size,
+            n_envs=self.n_envs,
+            mask_dims=self.mask_dims,
         )
 
     def add(
@@ -202,8 +196,10 @@ class MaskableRecurrentDictRolloutBuffer(RecurrentDictRolloutBuffer):
         **kwargs: object,
     ) -> None:
         if action_masks is not None:
-            self.action_masks[self.pos] = action_masks.reshape(
-                (self.n_envs, self.mask_dims)
+            self.action_masks[self.pos] = reshape_action_masks(
+                action_masks,
+                n_envs=self.n_envs,
+                mask_dims=self.mask_dims,
             )
         super().add(*args, lstm_states=lstm_states, **kwargs)
 

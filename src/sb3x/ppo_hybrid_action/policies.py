@@ -28,6 +28,9 @@ class HybridActionActorCriticPolicy(ActorCriticPolicy):
 
     action_dist: HybridActionDistribution
 
+    def _make_action_dist(self) -> HybridActionDistribution:
+        return HybridActionDistribution(self.hybrid_action_spec)
+
     def __init__(
         self,
         observation_space: spaces.Space,
@@ -82,7 +85,7 @@ class HybridActionActorCriticPolicy(ActorCriticPolicy):
         self._build_mlp_extractor()
 
         latent_dim_pi = self.mlp_extractor.latent_dim_pi
-        self.action_dist = HybridActionDistribution(self.hybrid_action_spec)
+        self.action_dist = self._make_action_dist()
         self.action_net, self.log_std = self.action_dist.proba_distribution_net(
             latent_dim=latent_dim_pi,
             log_std_init=self.log_std_init,

@@ -242,7 +242,7 @@ def make_masked_proba_distribution(action_space: spaces.Space) -> MaskableDistri
         return MaskableCategoricalDistribution(int(action_space.n))
     if isinstance(action_space, spaces.MultiDiscrete):
         return MaskableMultiCategoricalDistribution(
-            [int(action_dim) for action_dim in action_space.nvec.tolist()]
+            [int(action_dim) for action_dim in action_space.nvec.ravel()]
         )
     if isinstance(action_space, spaces.MultiBinary):
         if not isinstance(action_space.n, int):
