@@ -1,4 +1,4 @@
-"""Actor-critic policies for ``HybridActionPPO``."""
+"""Recurrent actor-critic policies for ``HybridRecurrentPPO``."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import torch as th
 from gymnasium import spaces
-from stable_baselines3.common.policies import ActorCriticPolicy
+from sb3_contrib.common.recurrent.policies import RecurrentActorCriticPolicy
 from stable_baselines3.common.torch_layers import (
     BaseFeaturesExtractor,
     CombinedExtractor,
@@ -25,8 +25,8 @@ from sb3x.common.hybrid_action import (
 )
 
 
-class HybridActionActorCriticPolicy(ActorCriticPolicy):
-    """Actor-critic policy with a hybrid continuous/discrete action head."""
+class HybridRecurrentActorCriticPolicy(RecurrentActorCriticPolicy):
+    """Recurrent actor-critic policy with a hybrid action distribution."""
 
     action_dist: HybridActionDistribution
 
@@ -52,12 +52,17 @@ class HybridActionActorCriticPolicy(ActorCriticPolicy):
         normalize_images: bool = True,
         optimizer_class: type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: dict[str, Any] | None = None,
+        lstm_hidden_size: int = 256,
+        n_lstm_layers: int = 1,
+        shared_lstm: bool = False,
+        enable_critic_lstm: bool = True,
+        lstm_kwargs: dict[str, Any] | None = None,
         hybrid_action_space: spaces.Dict | None = None,
     ) -> None:
         if hybrid_action_space is None:
-            raise ValueError("HybridActionPPO policies require hybrid_action_space")
+            raise ValueError("HybridRecurrentPPO policies require hybrid_action_space")
         if use_sde:
-            raise ValueError("HybridActionPPO does not support gSDE")
+            raise ValueError("HybridRecurrentPPO does not support gSDE")
 
         self.hybrid_action_spec = make_hybrid_action_spec(hybrid_action_space)
         _validate_flat_action_space(action_space, self.hybrid_action_spec)
@@ -69,7 +74,7 @@ class HybridActionActorCriticPolicy(ActorCriticPolicy):
             net_arch=net_arch,
             activation_fn=activation_fn,
             ortho_init=ortho_init,
-            use_sde=use_sde,
+            use_sde=False,
             log_std_init=log_std_init,
             full_std=full_std,
             use_expln=use_expln,
@@ -80,10 +85,15 @@ class HybridActionActorCriticPolicy(ActorCriticPolicy):
             normalize_images=normalize_images,
             optimizer_class=optimizer_class,
             optimizer_kwargs=optimizer_kwargs,
+            lstm_hidden_size=lstm_hidden_size,
+            n_lstm_layers=n_lstm_layers,
+            shared_lstm=shared_lstm,
+            enable_critic_lstm=enable_critic_lstm,
+            lstm_kwargs=lstm_kwargs,
         )
 
     def _build(self, lr_schedule: Schedule) -> None:
-        """Create SB3 actor-critic modules with a hybrid action distribution."""
+        """Create SB3 recurrent actor-critic modules with a hybrid head."""
         self._build_mlp_extractor()
 
         latent_dim_pi = self.mlp_extractor.latent_dim_pi
@@ -124,8 +134,8 @@ class HybridActionActorCriticPolicy(ActorCriticPolicy):
         return self.action_dist.proba_distribution(action_params, self.log_std)
 
 
-class HybridActionActorCriticCnnPolicy(HybridActionActorCriticPolicy):
-    """CNN policy entrypoint for hybrid action PPO."""
+class HybridRecurrentActorCriticCnnPolicy(HybridRecurrentActorCriticPolicy):
+    """CNN recurrent policy entrypoint for hybrid action PPO."""
 
     def __init__(
         self,
@@ -146,6 +156,11 @@ class HybridActionActorCriticCnnPolicy(HybridActionActorCriticPolicy):
         normalize_images: bool = True,
         optimizer_class: type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: dict[str, Any] | None = None,
+        lstm_hidden_size: int = 256,
+        n_lstm_layers: int = 1,
+        shared_lstm: bool = False,
+        enable_critic_lstm: bool = True,
+        lstm_kwargs: dict[str, Any] | None = None,
         hybrid_action_space: spaces.Dict | None = None,
     ) -> None:
         super().__init__(
@@ -166,12 +181,17 @@ class HybridActionActorCriticCnnPolicy(HybridActionActorCriticPolicy):
             normalize_images=normalize_images,
             optimizer_class=optimizer_class,
             optimizer_kwargs=optimizer_kwargs,
+            lstm_hidden_size=lstm_hidden_size,
+            n_lstm_layers=n_lstm_layers,
+            shared_lstm=shared_lstm,
+            enable_critic_lstm=enable_critic_lstm,
+            lstm_kwargs=lstm_kwargs,
             hybrid_action_space=hybrid_action_space,
         )
 
 
-class HybridActionMultiInputActorCriticPolicy(HybridActionActorCriticPolicy):
-    """Multi-input policy entrypoint for hybrid action PPO."""
+class HybridRecurrentMultiInputActorCriticPolicy(HybridRecurrentActorCriticPolicy):
+    """Multi-input recurrent policy entrypoint for hybrid action PPO."""
 
     def __init__(
         self,
@@ -192,6 +212,11 @@ class HybridActionMultiInputActorCriticPolicy(HybridActionActorCriticPolicy):
         normalize_images: bool = True,
         optimizer_class: type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: dict[str, Any] | None = None,
+        lstm_hidden_size: int = 256,
+        n_lstm_layers: int = 1,
+        shared_lstm: bool = False,
+        enable_critic_lstm: bool = True,
+        lstm_kwargs: dict[str, Any] | None = None,
         hybrid_action_space: spaces.Dict | None = None,
     ) -> None:
         super().__init__(
@@ -212,6 +237,11 @@ class HybridActionMultiInputActorCriticPolicy(HybridActionActorCriticPolicy):
             normalize_images=normalize_images,
             optimizer_class=optimizer_class,
             optimizer_kwargs=optimizer_kwargs,
+            lstm_hidden_size=lstm_hidden_size,
+            n_lstm_layers=n_lstm_layers,
+            shared_lstm=shared_lstm,
+            enable_critic_lstm=enable_critic_lstm,
+            lstm_kwargs=lstm_kwargs,
             hybrid_action_space=hybrid_action_space,
         )
 
@@ -221,7 +251,7 @@ def _validate_flat_action_space(
     spec: HybridActionSpec,
 ) -> None:
     if not isinstance(action_space, spaces.Box):
-        raise TypeError("HybridActionPPO policy expects the internal flat Box space")
+        raise TypeError("HybridRecurrentPPO policy expects the internal flat Box space")
     if action_space.shape != (spec.flat_dim,):
         raise ValueError(
             f"Flat action space shape {action_space.shape} does not match "
@@ -229,15 +259,15 @@ def _validate_flat_action_space(
         )
 
 
-MlpPolicy = HybridActionActorCriticPolicy
-CnnPolicy = HybridActionActorCriticCnnPolicy
-MultiInputPolicy = HybridActionMultiInputActorCriticPolicy
+MlpLstmPolicy = HybridRecurrentActorCriticPolicy
+CnnLstmPolicy = HybridRecurrentActorCriticCnnPolicy
+MultiInputLstmPolicy = HybridRecurrentMultiInputActorCriticPolicy
 
 __all__ = [
-    "CnnPolicy",
-    "HybridActionActorCriticCnnPolicy",
-    "HybridActionActorCriticPolicy",
-    "HybridActionMultiInputActorCriticPolicy",
-    "MlpPolicy",
-    "MultiInputPolicy",
+    "CnnLstmPolicy",
+    "HybridRecurrentActorCriticCnnPolicy",
+    "HybridRecurrentActorCriticPolicy",
+    "HybridRecurrentMultiInputActorCriticPolicy",
+    "MlpLstmPolicy",
+    "MultiInputLstmPolicy",
 ]

@@ -8,6 +8,7 @@ import torch as th
 from stable_baselines3.common.distributions import (
     DiagGaussianDistribution,
     Distribution,
+    MultiCategoricalDistribution,
 )
 from torch import nn
 
@@ -158,3 +159,15 @@ class BaseHybridActionDistribution(Distribution):
     ) -> tuple[th.Tensor, th.Tensor]:
         actions = self.actions_from_params(action_params, log_std)
         return actions, self.log_prob(actions)
+
+
+class HybridActionDistribution(BaseHybridActionDistribution):
+    """Independent Gaussian and MultiCategorical distribution pair."""
+
+    discrete_dist: MultiCategoricalDistribution
+
+    def __init__(self, spec: HybridActionSpec) -> None:
+        super().__init__(
+            spec,
+            MultiCategoricalDistribution(spec.discrete_action_dims),
+        )

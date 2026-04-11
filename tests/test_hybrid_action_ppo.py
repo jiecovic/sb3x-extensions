@@ -11,9 +11,12 @@ import torch as th
 from gymnasium import spaces
 
 from sb3x import HybridActionPPO
-from sb3x.common.hybrid_action import HybridAction, make_hybrid_action_spec
+from sb3x.common.hybrid_action import (
+    HybridAction,
+    HybridActionDistribution,
+    make_hybrid_action_spec,
+)
 from sb3x.common.hybrid_action.wrappers import HybridActionEnvWrapper
-from sb3x.ppo_hybrid_action.distributions import HybridActionDistribution
 
 OBSERVATION_SHAPE = (3,)
 

@@ -3,6 +3,7 @@
 from importlib.metadata import PackageNotFoundError, version
 
 from .ppo_hybrid_action import HybridActionPPO
+from .ppo_hybrid_recurrent import HybridRecurrentPPO
 from .ppo_mask_hybrid_action import MaskableHybridActionPPO
 from .ppo_mask_recurrent import MaskableRecurrentPPO
 
@@ -14,6 +15,7 @@ except PackageNotFoundError:  # pragma: no cover - fallback for direct source us
 __all__ = [
     "__version__",
     "HybridActionPPO",
+    "HybridRecurrentPPO",
     "MaskableHybridActionPPO",
     "MaskableRecurrentPPO",
 ]

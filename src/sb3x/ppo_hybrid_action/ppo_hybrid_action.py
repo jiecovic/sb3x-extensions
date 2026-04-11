@@ -7,7 +7,6 @@ from typing import Any, ClassVar
 import gymnasium as gym
 import numpy as np
 import torch as th
-from gymnasium import spaces
 from stable_baselines3 import PPO
 from stable_baselines3.common.buffers import RolloutBuffer
 from stable_baselines3.common.policies import ActorCriticPolicy
@@ -17,7 +16,9 @@ from stable_baselines3.common.vec_env.base_vec_env import VecEnv
 from sb3x.common.hybrid_action import (
     HybridAction,
     HybridActionSpec,
+    has_public_hybrid_action_space,
     make_hybrid_action_spec,
+    prepare_hybrid_action_env,
     wrap_hybrid_action_env,
 )
 
@@ -73,35 +74,14 @@ class HybridActionPPO(PPO):
         if use_sde:
             raise ValueError("HybridActionPPO does not support gSDE")
 
-        policy_kwargs = {} if policy_kwargs is None else dict(policy_kwargs)
-        wrapped_env = env
-        if env is not None:
-            wrapped_spec = _get_wrapped_hybrid_action_spec(env)
-            if wrapped_spec is not None:
-                self.hybrid_action_spec = wrapped_spec
-                policy_kwargs["hybrid_action_space"] = wrapped_spec.action_space
-            elif isinstance(env, str) or _has_public_hybrid_action_space(env):
-                if "hybrid_action_space" in policy_kwargs:
-                    raise ValueError(
-                        "HybridActionPPO owns policy_kwargs['hybrid_action_space']; "
-                        "pass the hybrid env action space through the environment"
-                    )
-                wrapped_env, self.hybrid_action_spec = wrap_hybrid_action_env(env)
-                policy_kwargs["hybrid_action_space"] = (
-                    self.hybrid_action_spec.action_space
-                )
-            elif _init_setup_model:
-                raise TypeError(
-                    "HybridActionPPO requires an env with a public "
-                    "spaces.Dict(continuous=Box, discrete=MultiDiscrete) "
-                    "action space"
-                )
-        elif _init_setup_model:
-            raise ValueError("HybridActionPPO requires an env at construction time")
-        elif "hybrid_action_space" in policy_kwargs:
-            self.hybrid_action_spec = make_hybrid_action_spec(
-                policy_kwargs["hybrid_action_space"]
-            )
+        wrapped_env, hybrid_action_spec, policy_kwargs = prepare_hybrid_action_env(
+            env,
+            {} if policy_kwargs is None else policy_kwargs,
+            algorithm_name="HybridActionPPO",
+            init_setup_model=_init_setup_model,
+        )
+        if hybrid_action_spec is not None:
+            self.hybrid_action_spec = hybrid_action_spec
 
         super().__init__(
             policy=policy,
@@ -143,7 +123,7 @@ class HybridActionPPO(PPO):
     ) -> VecEnv:
         """Let SB3 loading validate against the internal flat action space."""
         wrapped_env: GymEnv = env
-        if _has_public_hybrid_action_space(env):
+        if has_public_hybrid_action_space(env):
             wrapped_env, _ = wrap_hybrid_action_env(env)
         return super()._wrap_env(
             wrapped_env,
@@ -182,15 +162,3 @@ class HybridActionPPO(PPO):
         if actions_array.ndim == 1:
             return self.hybrid_action_spec.unflatten_action(actions_array)
         return self.hybrid_action_spec.unflatten_action_batch(actions_array)
-
-
-def _get_wrapped_hybrid_action_spec(env: object) -> HybridActionSpec | None:
-    spec = getattr(env, "hybrid_action_spec", None)
-    if isinstance(spec, HybridActionSpec):
-        return spec
-    return None
-
-
-def _has_public_hybrid_action_space(env: object) -> bool:
-    action_space = getattr(env, "action_space", None)
-    return isinstance(action_space, spaces.Dict)
