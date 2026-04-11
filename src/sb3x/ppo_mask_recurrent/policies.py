@@ -71,9 +71,7 @@ class MaskableRecurrentActorCriticCnnPolicy(MaskableRecurrentActorCriticPolicy):
         )
 
 
-class MaskableRecurrentMultiInputActorCriticPolicy(
-    MaskableRecurrentActorCriticPolicy
-):
+class MaskableRecurrentMultiInputActorCriticPolicy(MaskableRecurrentActorCriticPolicy):
     """Multi-input recurrent actor-critic policy with invalid-action masking."""
 
     def __init__(

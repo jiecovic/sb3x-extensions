@@ -5,8 +5,12 @@ Stable-Baselines3 and `sb3-contrib`.
 
 The Python package name is `sb3x`.
 
-For now, it only contains `MaskableRecurrentPPO`: a local combination of the
-ideas behind `MaskablePPO` and `RecurrentPPO`.
+It currently contains:
+
+- `MaskableRecurrentPPO`: a local combination of the ideas behind
+  `MaskablePPO` and `RecurrentPPO`.
+- `HybridActionPPO`: an experimental PPO variant for hybrid
+  `Dict(continuous=Box, discrete=MultiDiscrete)` action spaces.
 
 ## Status
 
@@ -42,11 +46,22 @@ pip install -e ".[dev]"
 ## Usage
 
 ```python
-from sb3x import MaskableRecurrentPPO
+from sb3x import HybridActionPPO, MaskableRecurrentPPO
 ```
 
 The intended API style is close to `sb3-contrib`'s `MaskablePPO` and
 `RecurrentPPO`.
+
+`HybridActionPPO` expects an environment action space shaped like:
+
+```python
+spaces.Dict(
+    {
+        "continuous": spaces.Box(...),
+        "discrete": spaces.MultiDiscrete(...),
+    }
+)
+```
 
 ## Related Projects
 

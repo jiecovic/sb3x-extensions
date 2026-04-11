@@ -3,7 +3,12 @@
 from importlib.metadata import version
 
 import sb3x
-from sb3x import MaskableRecurrentPPO
+from sb3x import HybridActionPPO, MaskableRecurrentPPO
+from sb3x.ppo_hybrid_action import (
+    CnnPolicy,
+    MlpPolicy,
+    MultiInputPolicy,
+)
 from sb3x.ppo_mask_recurrent import (
     CnnLstmPolicy,
     MlpLstmPolicy,
@@ -14,7 +19,11 @@ from sb3x.ppo_mask_recurrent import (
 def test_import_smoke() -> None:
     """The top-level package exposes the current algorithm namespace cleanly."""
     assert sb3x.__version__ == version("sb3x")
+    assert sb3x.HybridActionPPO is HybridActionPPO
     assert sb3x.MaskableRecurrentPPO is MaskableRecurrentPPO
+    assert MlpPolicy.__name__ == "HybridActionActorCriticPolicy"
+    assert CnnPolicy.__name__ == "HybridActionActorCriticCnnPolicy"
+    assert MultiInputPolicy.__name__ == "HybridActionMultiInputActorCriticPolicy"
     assert MlpLstmPolicy.__name__ == "MaskableRecurrentActorCriticPolicy"
     assert CnnLstmPolicy.__name__ == "MaskableRecurrentActorCriticCnnPolicy"
     assert (
