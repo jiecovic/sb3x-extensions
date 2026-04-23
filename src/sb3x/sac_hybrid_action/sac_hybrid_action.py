@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
@@ -96,6 +97,7 @@ class HybridActionSAC(SAC):
                 "corrupt the categorical branch"
             )
 
+        self._uses_auto_target_entropy = target_entropy == "auto"
         wrapped_env, hybrid_action_spec, policy_kwargs = prepare_hybrid_action_env(
             env,
             {} if policy_kwargs is None else policy_kwargs,
@@ -159,6 +161,8 @@ class HybridActionSAC(SAC):
         hybrid_action_space = self.policy_kwargs.get("hybrid_action_space")
         if hybrid_action_space is not None:
             self.hybrid_action_spec = make_hybrid_action_spec(hybrid_action_space)
+        if self._uses_auto_target_entropy:
+            self.target_entropy = _auto_target_entropy(self.hybrid_action_spec)
 
     def _sample_action(
         self,
@@ -171,9 +175,7 @@ class HybridActionSAC(SAC):
             raise ValueError("HybridActionSAC does not support action_noise")
 
         if self.num_timesteps < learning_starts:
-            unscaled_action = np.array(
-                [self.action_space.sample() for _ in range(n_envs)]
-            )
+            unscaled_action = self._sample_uniform_flat_hybrid_actions(n_envs)
         else:
             if self._last_obs is None:
                 raise RuntimeError("self._last_obs was not set")
@@ -186,6 +188,49 @@ class HybridActionSAC(SAC):
             raise TypeError("HybridActionSAC requires the internal flat Box space")
         scaled_action = self.policy.scale_action(unscaled_action)
         return self.policy.unscale_action(scaled_action), scaled_action
+
+    def _sample_uniform_flat_hybrid_actions(self, n_envs: int) -> np.ndarray:
+        """Sample warmup actions with uniform per-branch discrete categories."""
+        return np.stack(
+            [self._sample_uniform_flat_hybrid_action() for _ in range(n_envs)],
+            axis=0,
+        )
+
+    def _sample_uniform_flat_hybrid_action(
+        self,
+        discrete_action: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Sample one flat warmup action without Box-rounding bias."""
+        if not isinstance(self.action_space, spaces.Box):
+            raise TypeError("HybridActionSAC requires the internal flat Box space")
+
+        rng = self.action_space.np_random
+        continuous_space = self.hybrid_action_spec.continuous_space
+        continuous_action = rng.uniform(
+            continuous_space.low.reshape(-1),
+            continuous_space.high.reshape(-1),
+        ).astype(np.float32)
+
+        if discrete_action is None:
+            discrete_values = np.asarray(
+                [
+                    rng.integers(action_dim)
+                    for action_dim in self.hybrid_action_spec.discrete_action_dims
+                ],
+                dtype=np.float32,
+            )
+        else:
+            discrete_values = np.asarray(discrete_action, dtype=np.float32).reshape(-1)
+            if discrete_values.size != self.hybrid_action_spec.discrete_dim:
+                raise ValueError(
+                    "Discrete warmup action has "
+                    f"{discrete_values.size} values, expected "
+                    f"{self.hybrid_action_spec.discrete_dim}"
+                )
+
+        return np.concatenate([continuous_action, discrete_values], axis=0).astype(
+            np.float32,
+        )
 
     def train(self, gradient_steps: int, batch_size: int = 64) -> None:
         """Run SAC updates with exact expectation over the discrete branch."""
@@ -459,3 +504,11 @@ def _repeat_observations(observations: PyTorchObs, repeats: int) -> PyTorchObs:
             for key, value in observations.items()
         }
     return observations.repeat_interleave(repeats, dim=0)
+
+
+def _auto_target_entropy(spec: HybridActionSpec) -> float:
+    """Match SB3's continuous heuristic and add discrete branch capacity."""
+    discrete_entropy = sum(
+        math.log(action_dim) for action_dim in spec.discrete_action_dims
+    )
+    return -float(spec.continuous_dim + discrete_entropy)

@@ -324,9 +324,7 @@ class MaskableHybridActionSAC(HybridActionSAC):
 
     def _sample_warmup_actions(self, action_masks: np.ndarray) -> np.ndarray:
         if not self.use_masking:
-            return np.array(
-                [self.action_space.sample() for _ in range(action_masks.shape[0])]
-            )
+            return self._sample_uniform_flat_hybrid_actions(action_masks.shape[0])
 
         mask_batch = np.asarray(action_masks, dtype=bool).reshape(
             action_masks.shape[0],
@@ -334,12 +332,12 @@ class MaskableHybridActionSAC(HybridActionSAC):
         )
         actions = []
         for masks in mask_batch:
-            flat_action = np.asarray(self.action_space.sample(), dtype=np.float32)
             discrete_action = self._sample_discrete_branch(masks)
-            flat_action[self.hybrid_action_spec.continuous_dim :] = (
-                discrete_action.reshape(-1)
+            actions.append(
+                self._sample_uniform_flat_hybrid_action(
+                    discrete_action=discrete_action,
+                )
             )
-            actions.append(flat_action)
         return np.asarray(actions, dtype=np.float32)
 
     def _sample_discrete_branch(self, action_masks: np.ndarray) -> np.ndarray:

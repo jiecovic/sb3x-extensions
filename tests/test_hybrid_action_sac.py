@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import ClassVar
 
@@ -203,3 +204,51 @@ def test_hybrid_action_sac_rejects_large_discrete_enumeration() -> None:
                 "max_discrete_combinations": 2,
             },
         )
+
+
+def test_hybrid_action_sac_auto_target_entropy_is_hybrid_aware() -> None:
+    model = HybridActionSAC(
+        "MlpPolicy",
+        HybridBanditEnv(),
+        seed=123,
+        device="cpu",
+        learning_starts=0,
+        buffer_size=32,
+        batch_size=2,
+        train_freq=1,
+        gradient_steps=1,
+        policy_kwargs={"net_arch": [8]},
+    )
+
+    expected = -(
+        model.hybrid_action_spec.continuous_dim
+        + sum(
+            math.log(action_dim)
+            for action_dim in model.hybrid_action_spec.discrete_action_dims
+        )
+    )
+    assert model.target_entropy == pytest.approx(expected)
+
+
+def test_hybrid_action_sac_warmup_samples_discrete_branches_uniformly() -> None:
+    model = HybridActionSAC(
+        "MlpPolicy",
+        HybridBanditEnv(),
+        seed=123,
+        device="cpu",
+        learning_starts=0,
+        buffer_size=32,
+        batch_size=2,
+        train_freq=1,
+        gradient_steps=1,
+        policy_kwargs={"net_arch": [8]},
+    )
+
+    samples = model._sample_uniform_flat_hybrid_actions(6000)
+    discrete = samples[:, model.hybrid_action_spec.continuous_dim :].astype(np.int64)
+
+    first_branch = np.bincount(discrete[:, 0], minlength=3) / len(discrete)
+    second_branch = np.bincount(discrete[:, 1], minlength=2) / len(discrete)
+
+    np.testing.assert_allclose(first_branch, np.full(3, 1 / 3), atol=0.03)
+    np.testing.assert_allclose(second_branch, np.full(2, 0.5), atol=0.03)
