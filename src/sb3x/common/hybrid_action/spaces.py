@@ -1,4 +1,4 @@
-"""Action-space helpers for the first hybrid-action PPO implementation."""
+"""Action-space helpers for hybrid continuous/discrete algorithms."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ class HybridActionSpec:
 
     @property
     def flat_action_space(self) -> spaces.Box:
-        """Return the flat action space used internally by SB3 PPO buffers."""
+        """Return the flat action space used internally by SB3 algorithms."""
         return spaces.Box(
             low=self.flat_low,
             high=self.flat_high,
@@ -153,12 +153,14 @@ class HybridActionSpec:
 def make_hybrid_action_spec(action_space: spaces.Space) -> HybridActionSpec:
     """Validate and describe the supported ``Box + MultiDiscrete`` action space."""
     if not isinstance(action_space, spaces.Dict):
-        raise TypeError("HybridActionPPO requires a gymnasium.spaces.Dict action space")
+        raise TypeError(
+            "Hybrid action algorithms require a gymnasium.spaces.Dict action space"
+        )
 
     keys = frozenset(action_space.spaces.keys())
     if keys != HYBRID_ACTION_KEYS:
         raise ValueError(
-            "HybridActionPPO action spaces must have exactly the keys "
+            "Hybrid action spaces must have exactly the keys "
             f"{sorted(HYBRID_ACTION_KEYS)}, got {sorted(keys)}"
         )
 

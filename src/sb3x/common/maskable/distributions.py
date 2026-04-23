@@ -21,6 +21,7 @@ SelfMaskableMultiCategoricalDistribution = TypeVar(
     bound="MaskableMultiCategoricalDistribution",
 )
 MaybeMasks = th.Tensor | np.ndarray | None
+MASKED_LOGIT_VALUE = -1e8
 
 
 class MaskableCategorical(Categorical):
@@ -48,7 +49,11 @@ class MaskableCategorical(Categorical):
             self.masks = th.as_tensor(masks, dtype=th.bool, device=device).reshape(
                 self.logits.shape
             )
-            huge_negative = th.tensor(-1e8, dtype=self.logits.dtype, device=device)
+            huge_negative = th.tensor(
+                MASKED_LOGIT_VALUE,
+                dtype=self.logits.dtype,
+                device=device,
+            )
             logits = th.where(self.masks, self._original_logits, huge_negative)
 
         self.__dict__.pop("probs", None)

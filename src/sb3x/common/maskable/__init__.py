@@ -40,8 +40,8 @@ __all__ = [
     "MaybeMasks",
     "get_action_masks",
     "is_masking_supported",
-    "make_masked_proba_distribution",
     "make_all_valid_action_masks",
+    "make_masked_proba_distribution",
     "mask_dims_for_action_space",
     "reshape_action_masks",
 ]

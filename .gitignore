@@ -205,6 +205,9 @@ AGENTS.md
 # Repo-local training and benchmark artifacts
 local/
 
+# Repo-local research notes and paper drafts
+theory/
+
 # Marimo
 marimo/_static/
 marimo/_lsp/

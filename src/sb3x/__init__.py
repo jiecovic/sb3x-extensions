@@ -7,6 +7,8 @@ from .ppo_hybrid_recurrent import HybridRecurrentPPO
 from .ppo_mask_hybrid_action import MaskableHybridActionPPO
 from .ppo_mask_hybrid_recurrent import MaskableHybridRecurrentPPO
 from .ppo_mask_recurrent import MaskableRecurrentPPO
+from .sac_hybrid_action import HybridActionSAC
+from .sac_mask_hybrid_action import MaskableHybridActionSAC
 
 try:
     __version__ = version("sb3x")
@@ -17,7 +19,9 @@ __all__ = [
     "__version__",
     "HybridActionPPO",
     "HybridRecurrentPPO",
+    "HybridActionSAC",
     "MaskableHybridActionPPO",
+    "MaskableHybridActionSAC",
     "MaskableHybridRecurrentPPO",
     "MaskableRecurrentPPO",
 ]

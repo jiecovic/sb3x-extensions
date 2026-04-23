@@ -78,7 +78,7 @@ class HybridActionVecEnvWrapper(VecEnvWrapper):
 
 
 def wrap_hybrid_action_env(env: GymEnv | str) -> tuple[GymEnv, HybridActionSpec]:
-    """Wrap a hybrid-action env so SB3 PPO sees a flat ``Box`` action space."""
+    """Wrap a hybrid-action env so SB3 sees a flat ``Box`` action space."""
     if isinstance(env, str):
         env = gym.make(env)
 

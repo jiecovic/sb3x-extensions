@@ -5,10 +5,10 @@ Stable-Baselines3 and `sb3-contrib`.
 
 The Python package name is `sb3x`.
 
-## Included PPO Variants
+## Included Variants
 
-The package currently focuses on PPO variants that combine ideas from
-Stable-Baselines3 PPO, `sb3-contrib`'s `MaskablePPO`, and `sb3-contrib`'s
+The package currently focuses on hybrid, masked, and recurrent variants around
+Stable-Baselines3 PPO/SAC, `sb3-contrib`'s `MaskablePPO`, and `sb3-contrib`'s
 `RecurrentPPO`.
 
 | Variant | Main idea |
@@ -18,6 +18,8 @@ Stable-Baselines3 PPO, `sb3-contrib`'s `MaskablePPO`, and `sb3-contrib`'s
 | `MaskableHybridActionPPO` | Hybrid-action PPO with masks applied only to the `MultiDiscrete` branch. |
 | `HybridRecurrentPPO` | Recurrent PPO for the same hybrid action setup. |
 | `MaskableHybridRecurrentPPO` | Hybrid-action recurrent PPO with masks applied only to the `MultiDiscrete` branch. |
+| `HybridActionSAC` | SAC for hybrid actions, with an exact discrete-branch expectation and a Gaussian continuous branch. |
+| `MaskableHybridActionSAC` | Hybrid-action SAC with masks applied only to the `MultiDiscrete` branch. |
 
 ## Status
 
@@ -56,7 +58,9 @@ pip install -e ".[dev]"
 from sb3x import (
     HybridActionPPO,
     HybridRecurrentPPO,
+    HybridActionSAC,
     MaskableHybridActionPPO,
+    MaskableHybridActionSAC,
     MaskableHybridRecurrentPPO,
     MaskableRecurrentPPO,
 )
@@ -87,6 +91,14 @@ mask convention used by `sb3-contrib`'s `MaskablePPO`.
 `MaskableHybridRecurrentPPO` combines both constraints: recurrent state follows
 the same recurrent API, while `env.action_masks()` only masks the discrete
 branch.
+
+`HybridActionSAC` uses the same hybrid action space. The discrete branch is
+enumerated exactly during SAC updates, so very large `MultiDiscrete`
+combinations are intentionally rejected by default.
+
+`MaskableHybridActionSAC` uses the same hybrid action space and applies
+`env.action_masks()` only to the discrete branch. The SAC target and actor loss
+integrate over the valid discrete actions for each sampled transition.
 
 ## Related Projects
 
