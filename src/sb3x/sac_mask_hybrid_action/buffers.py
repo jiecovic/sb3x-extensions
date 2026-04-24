@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, Protocol, TypeAlias, TypeGuard
 
 import numpy as np
 import torch as th
@@ -11,6 +11,8 @@ from stable_baselines3.common.type_aliases import TensorDict
 from stable_baselines3.common.vec_env import VecNormalize
 
 from sb3x.common.maskable import make_all_valid_action_masks, reshape_action_masks
+
+MaskableHybridReplayObservation: TypeAlias = np.ndarray | dict[str, np.ndarray]
 
 
 class MaskableHybridActionReplayBufferSamples(NamedTuple):
@@ -37,6 +39,42 @@ class MaskableHybridActionDictReplayBufferSamples(NamedTuple):
     action_masks: th.Tensor
     next_action_masks: th.Tensor
     discounts: th.Tensor | None = None
+
+
+class SupportsMaskableHybridActionReplayBufferSamples(Protocol):
+    """Structural sample interface required by MaskableHybridActionSAC."""
+
+    observations: th.Tensor | TensorDict
+    actions: th.Tensor
+    next_observations: th.Tensor | TensorDict
+    dones: th.Tensor
+    rewards: th.Tensor
+    action_masks: th.Tensor
+    next_action_masks: th.Tensor
+    discounts: th.Tensor | None
+
+
+class SupportsMaskableHybridActionReplayBuffer(Protocol):
+    """Structural replay-buffer interface required by MaskableHybridActionSAC."""
+
+    def add(
+        self,
+        obs: MaskableHybridReplayObservation,
+        next_obs: MaskableHybridReplayObservation,
+        action: np.ndarray,
+        reward: np.ndarray,
+        done: np.ndarray,
+        infos: list[dict[str, Any]],
+        *,
+        action_masks: np.ndarray | None = None,
+        next_action_masks: np.ndarray | None = None,
+    ) -> None: ...
+
+    def sample(
+        self,
+        batch_size: int,
+        env: VecNormalize | None = None,
+    ) -> SupportsMaskableHybridActionReplayBufferSamples: ...
 
 
 class MaskableHybridActionReplayBuffer(ReplayBuffer):
@@ -255,6 +293,29 @@ class MaskableHybridActionDictReplayBuffer(DictReplayBuffer):
                 self.next_action_masks[batch_inds, env_indices, :],
             ),
         )
+
+
+def is_maskable_hybrid_replay_buffer(
+    obj: object,
+) -> TypeGuard[SupportsMaskableHybridActionReplayBuffer]:
+    """Check whether a replay buffer provides the maskable hybrid SAC interface."""
+    return hasattr(obj, "add") and hasattr(obj, "sample")
+
+
+def is_maskable_hybrid_replay_buffer_samples(
+    obj: object,
+) -> TypeGuard[SupportsMaskableHybridActionReplayBufferSamples]:
+    """Check whether replay samples expose the fields used by hybrid SAC."""
+    required_attributes = (
+        "observations",
+        "actions",
+        "next_observations",
+        "dones",
+        "rewards",
+        "action_masks",
+        "next_action_masks",
+    )
+    return all(hasattr(obj, attribute) for attribute in required_attributes)
 
 
 def _as_array_observation(

@@ -27,6 +27,9 @@ from sb3x.sac_hybrid_action.sac_hybrid_action import (
 from .buffers import (
     MaskableHybridActionDictReplayBuffer,
     MaskableHybridActionReplayBuffer,
+    SupportsMaskableHybridActionReplayBuffer,
+    is_maskable_hybrid_replay_buffer,
+    is_maskable_hybrid_replay_buffer_samples,
 )
 from .policies import (
     CnnPolicy,
@@ -68,12 +71,9 @@ class MaskableHybridActionSAC(HybridActionSAC):
     @property
     def maskable_replay_buffer(
         self,
-    ) -> MaskableHybridActionReplayBuffer | MaskableHybridActionDictReplayBuffer:
+    ) -> SupportsMaskableHybridActionReplayBuffer:
         """Return the replay buffer narrowed to the maskable variants."""
-        if not isinstance(
-            self.replay_buffer,
-            (MaskableHybridActionReplayBuffer, MaskableHybridActionDictReplayBuffer),
-        ):
+        if not is_maskable_hybrid_replay_buffer(self.replay_buffer):
             raise TypeError(f"{self.replay_buffer} does not support action masking")
         return self.replay_buffer
 
@@ -171,10 +171,7 @@ class MaskableHybridActionSAC(HybridActionSAC):
         dones: np.ndarray,
         infos: list[dict[str, Any]],
     ) -> None:
-        if not isinstance(
-            replay_buffer,
-            (MaskableHybridActionReplayBuffer, MaskableHybridActionDictReplayBuffer),
-        ):
+        if not is_maskable_hybrid_replay_buffer(replay_buffer):
             raise TypeError(f"{replay_buffer} does not support action masking")
 
         if self._vec_normalize_env is not None:
@@ -208,37 +205,18 @@ class MaskableHybridActionSAC(HybridActionSAC):
             current_action_masks = self._all_valid_action_masks(len(dones))
 
         last_original_obs = self._last_original_obs
-        if isinstance(replay_buffer, MaskableHybridActionDictReplayBuffer):
-            if not isinstance(last_original_obs, dict) or not isinstance(
-                next_obs,
-                dict,
-            ):
-                raise TypeError("Dict replay buffer requires dict observations")
-            replay_buffer.add(
-                last_original_obs,
-                next_obs,
-                buffer_action,
-                reward_,
-                dones,
-                infos,
-                action_masks=current_action_masks,
-                next_action_masks=next_action_masks,
-            )
-        else:
-            if not isinstance(last_original_obs, np.ndarray) or not isinstance(
-                next_obs, np.ndarray
-            ):
-                raise TypeError("Replay buffer requires array observations")
-            replay_buffer.add(
-                last_original_obs,
-                next_obs,
-                buffer_action,
-                reward_,
-                dones,
-                infos,
-                action_masks=current_action_masks,
-                next_action_masks=next_action_masks,
-            )
+        if last_original_obs is None:
+            raise RuntimeError("self._last_original_obs was not set")
+        replay_buffer.add(
+            last_original_obs,
+            next_obs,
+            buffer_action,
+            reward_,
+            dones,
+            infos,
+            action_masks=current_action_masks,
+            next_action_masks=next_action_masks,
+        )
 
         self._last_obs = new_obs
         if self._vec_normalize_env is not None:
@@ -249,6 +227,10 @@ class MaskableHybridActionSAC(HybridActionSAC):
             batch_size,
             env=self._vec_normalize_env,
         )
+        if not is_maskable_hybrid_replay_buffer_samples(replay_data):
+            raise TypeError(
+                f"{type(replay_data).__name__} does not provide maskable replay fields"
+            )
         discounts = (
             replay_data.discounts if replay_data.discounts is not None else self.gamma
         )
