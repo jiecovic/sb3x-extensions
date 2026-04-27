@@ -14,6 +14,7 @@ and `sb3-contrib`'s `RecurrentPPO`.
 | Variant | Main idea |
 | --- | --- |
 | `BoltzmannDQN` | DQN with softmax-over-Q exploration instead of epsilon-greedy action selection. |
+| `DiscreteSAC` | SAC for finite `Discrete` action spaces with exact action expectations. |
 | `MaskableRecurrentPPO` | Recurrent PPO with invalid-action masks. |
 | `HybridActionPPO` | PPO for `Dict(continuous=Box, discrete=MultiDiscrete)` action spaces. |
 | `MaskableHybridActionPPO` | Hybrid-action PPO with masks applied only to the `MultiDiscrete` branch. |
@@ -58,6 +59,7 @@ pip install -e ".[dev]"
 ```python
 from sb3x import (
     BoltzmannDQN,
+    DiscreteSAC,
     HybridActionPPO,
     HybridRecurrentPPO,
     HybridActionSAC,
@@ -75,6 +77,10 @@ The intended API style is close to `sb3-contrib`'s `MaskablePPO` and
 The DQN loss, replay buffer, target network, and greedy target backup remain
 unchanged; only non-deterministic action selection samples from
 `softmax(Q(s, a) / temperature)`.
+
+`DiscreteSAC` also expects `Discrete` action spaces. It uses a categorical
+actor and twin Q-critics, computing SAC actor and target expectations exactly
+over the finite action set.
 
 `HybridActionPPO` expects an environment action space shaped like:
 
