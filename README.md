@@ -153,8 +153,6 @@ every paper.
 
 ### Canonical Preprints
 
-These are useful implementation references, but arXiv is not peer review.
-
 - PPO: Schulman et al., "Proximal Policy Optimization Algorithms", 2017.
   arXiv: <https://arxiv.org/abs/1707.06347>
 - Automatic entropy tuning in SAC: Haarnoja et al., "Soft Actor-Critic
