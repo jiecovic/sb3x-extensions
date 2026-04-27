@@ -113,6 +113,56 @@ combinations are intentionally rejected by default.
 `env.action_masks()` only to the discrete branch. The SAC target and actor loss
 integrate over the valid discrete actions for each sampled transition.
 
+## Algorithm References
+
+The implementations in this package are loosely based on the algorithmic ideas
+in the references below. This is not a claim that `sb3x` exactly reproduces
+every paper.
+
+### Peer-Reviewed References
+
+- DQN: Mnih et al., "Human-level control through deep reinforcement learning",
+  Nature 518, 529-533, 2015. DOI:
+  [10.1038/nature14236](https://doi.org/10.1038/nature14236)
+- Boltzmann exploration: Cesa-Bianchi et al., "Boltzmann Exploration Done
+  Right", Advances in Neural Information Processing Systems 30, 2017. Stable
+  proceedings URL:
+  <https://papers.nips.cc/paper/7208-boltzmann-exploration-done-right>
+- SAC: Haarnoja et al., "Soft Actor-Critic: Off-Policy Maximum Entropy Deep
+  Reinforcement Learning with a Stochastic Actor", Proceedings of the 35th
+  International Conference on Machine Learning, PMLR 80:1861-1870, 2018.
+  Stable proceedings URL:
+  <https://proceedings.mlr.press/v80/haarnoja18b.html>
+- Invalid-action masking: Huang and Ontañón, "A Closer Look at Invalid Action
+  Masking in Policy Gradient Algorithms", The International FLAIRS Conference
+  Proceedings 35, 2022. DOI:
+  [10.32473/flairs.v35i.130584](https://doi.org/10.32473/flairs.v35i.130584)
+- Partial observability and recurrent RL motivation: Hausknecht and Stone,
+  "Deep Recurrent Q-Learning for Partially Observable MDPs", AAAI Fall
+  Symposium on Sequential Decision Making for Intelligent Agents, 2015. Stable
+  author page:
+  <https://www.cs.utexas.edu/~pstone/Papers/bib2html/b2hd-SDMIA15-Hausknecht.html>
+- Hybrid / parameterized action spaces: Masson et al., "Reinforcement Learning
+  with Parameterized Actions", Proceedings of the Thirtieth AAAI Conference on
+  Artificial Intelligence, 1934-1940, 2016. DOI:
+  [10.1609/aaai.v30i1.10226](https://doi.org/10.1609/aaai.v30i1.10226)
+- Hybrid actor-critic methods: Fan et al., "Hybrid Actor-Critic Reinforcement
+  Learning in Parameterized Action Space", Proceedings of the Twenty-Eighth
+  International Joint Conference on Artificial Intelligence, 2279-2285, 2019.
+  DOI: [10.24963/ijcai.2019/316](https://doi.org/10.24963/ijcai.2019/316)
+
+### Canonical Preprints
+
+These are useful implementation references, but arXiv is not peer review.
+
+- PPO: Schulman et al., "Proximal Policy Optimization Algorithms", 2017.
+  arXiv: <https://arxiv.org/abs/1707.06347>
+- Automatic entropy tuning in SAC: Haarnoja et al., "Soft Actor-Critic
+  Algorithms and Applications", 2018. arXiv:
+  <https://arxiv.org/abs/1812.05905>
+- Discrete SAC: Christodoulou, "Soft Actor-Critic for Discrete Action
+  Settings", 2019. arXiv: <https://arxiv.org/abs/1910.07207>
+
 ## Related Projects
 
 - Stable-Baselines3 docs: <https://stable-baselines3.readthedocs.io/>
