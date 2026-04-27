@@ -2,6 +2,7 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
+from .dqn_boltzmann import BoltzmannDQN
 from .ppo_hybrid_action import HybridActionPPO
 from .ppo_hybrid_recurrent import HybridRecurrentPPO
 from .ppo_mask_hybrid_action import MaskableHybridActionPPO
@@ -17,6 +18,7 @@ except PackageNotFoundError:  # pragma: no cover - fallback for direct source us
 
 __all__ = [
     "__version__",
+    "BoltzmannDQN",
     "HybridActionPPO",
     "HybridRecurrentPPO",
     "HybridActionSAC",

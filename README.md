@@ -7,12 +7,13 @@ The Python package name is `sb3x`.
 
 ## Included Variants
 
-The package currently focuses on hybrid, masked, and recurrent variants around
-Stable-Baselines3 PPO/SAC, `sb3-contrib`'s `MaskablePPO`, and `sb3-contrib`'s
-`RecurrentPPO`.
+The package currently focuses on exploration, hybrid, masked, and recurrent
+variants around Stable-Baselines3 DQN/PPO/SAC, `sb3-contrib`'s `MaskablePPO`,
+and `sb3-contrib`'s `RecurrentPPO`.
 
 | Variant | Main idea |
 | --- | --- |
+| `BoltzmannDQN` | DQN with softmax-over-Q exploration instead of epsilon-greedy action selection. |
 | `MaskableRecurrentPPO` | Recurrent PPO with invalid-action masks. |
 | `HybridActionPPO` | PPO for `Dict(continuous=Box, discrete=MultiDiscrete)` action spaces. |
 | `MaskableHybridActionPPO` | Hybrid-action PPO with masks applied only to the `MultiDiscrete` branch. |
@@ -56,6 +57,7 @@ pip install -e ".[dev]"
 
 ```python
 from sb3x import (
+    BoltzmannDQN,
     HybridActionPPO,
     HybridRecurrentPPO,
     HybridActionSAC,
@@ -68,6 +70,11 @@ from sb3x import (
 
 The intended API style is close to `sb3-contrib`'s `MaskablePPO` and
 `RecurrentPPO`.
+
+`BoltzmannDQN` expects the same `Discrete` action spaces as SB3's `DQN`.
+The DQN loss, replay buffer, target network, and greedy target backup remain
+unchanged; only non-deterministic action selection samples from
+`softmax(Q(s, a) / temperature)`.
 
 `HybridActionPPO` expects an environment action space shaped like:
 

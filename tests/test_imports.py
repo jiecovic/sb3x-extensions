@@ -4,6 +4,7 @@ from importlib.metadata import version
 
 import sb3x
 from sb3x import (
+    BoltzmannDQN,
     HybridActionPPO,
     HybridActionSAC,
     HybridRecurrentPPO,
@@ -76,6 +77,7 @@ from sb3x.ppo_mask_recurrent.type_aliases import (
 def test_import_smoke() -> None:
     """The top-level package exposes the current algorithm namespace cleanly."""
     assert sb3x.__version__ == version("sb3x")
+    assert sb3x.BoltzmannDQN is BoltzmannDQN
     assert sb3x.HybridActionPPO is HybridActionPPO
     assert sb3x.HybridActionSAC is HybridActionSAC
     assert sb3x.HybridRecurrentPPO is HybridRecurrentPPO
