@@ -24,6 +24,7 @@ from stable_baselines3.common.utils import (
 )
 from stable_baselines3.common.vec_env import VecEnv
 
+from sb3x.common.auxiliary_losses import evaluate_actions_with_optional_aux
 from sb3x.common.maskable import get_action_masks, is_masking_supported
 from sb3x.common.maskable.recurrent_buffers import (
     MaskableRecurrentDictRolloutBuffer,
@@ -59,24 +60,6 @@ def _forward_recurrent_policy(
     """Isolate the weakly-typed recurrent policy call boundary."""
     return policy.forward(
         obs,
-        lstm_states,
-        episode_starts,
-        action_masks=action_masks,
-    )
-
-
-def _evaluate_recurrent_actions(
-    policy: MaskableRecurrentActorCriticPolicy,
-    obs: PolicyObs,
-    actions: th.Tensor,
-    lstm_states: RNNStates,
-    episode_starts: th.Tensor,
-    action_masks: ActionMasks = None,
-) -> tuple[th.Tensor, th.Tensor, th.Tensor | None]:
-    """Isolate the weakly-typed upstream recurrent action-eval boundary."""
-    return policy.evaluate_actions(
-        obs,
-        actions,
         lstm_states,
         episode_starts,
         action_masks=action_masks,
@@ -170,7 +153,7 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
         """Return the rollout buffer narrowed to the recurrent variants."""
         if not isinstance(
             self.rollout_buffer,
-            (MaskableRecurrentRolloutBuffer, MaskableRecurrentDictRolloutBuffer),
+            MaskableRecurrentRolloutBuffer | MaskableRecurrentDictRolloutBuffer,
         ):
             raise TypeError(f"{self.rollout_buffer} doesn't support recurrent policy")
         return self.rollout_buffer
@@ -223,7 +206,7 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
 
         self.clip_range = FloatSchedule(self.clip_range)
         if self.clip_range_vf is not None:
-            if isinstance(self.clip_range_vf, (float, int)):
+            if isinstance(self.clip_range_vf, float | int):
                 assert self.clip_range_vf > 0, (
                     "`clip_range_vf` must be positive, "
                     "pass `None` to deactivate vf clipping"
@@ -242,7 +225,7 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
         """Collect experiences using the current recurrent policy."""
         assert isinstance(
             rollout_buffer,
-            (MaskableRecurrentRolloutBuffer, MaskableRecurrentDictRolloutBuffer),
+            MaskableRecurrentRolloutBuffer | MaskableRecurrentDictRolloutBuffer,
         ), f"{rollout_buffer} doesn't support recurrent policy"
 
         last_obs = self._last_obs
@@ -397,6 +380,8 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
         entropy_losses = []
         pg_losses, value_losses = [], []
         clip_fractions = []
+        aux_losses: list[float] = []
+        aux_metric_history: dict[str, list[float]] = {}
 
         continue_training = True
 
@@ -409,13 +394,16 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
 
                 sequence_mask = rollout_data.sequence_mask > 1e-8
 
-                values, log_prob, entropy = _evaluate_recurrent_actions(
-                    policy,
-                    rollout_data.observations,
-                    actions,
-                    rollout_data.lstm_states,
-                    rollout_data.episode_starts,
-                    action_masks=rollout_data.action_masks,
+                values, log_prob, entropy, aux_loss = (
+                    evaluate_actions_with_optional_aux(
+                        policy,
+                        rollout_data.observations,
+                        actions,
+                        rollout_data.lstm_states,
+                        rollout_data.episode_starts,
+                        action_masks=rollout_data.action_masks,
+                        auxiliary_mask=sequence_mask,
+                    )
                 )
 
                 values = values.flatten()
@@ -469,6 +457,13 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
                     + self.ent_coef * entropy_loss
                     + self.vf_coef * value_loss
                 )
+                if aux_loss is not None:
+                    loss = loss + aux_loss.total_loss
+                    aux_losses.append(float(aux_loss.total_loss.detach().cpu().item()))
+                    for metric_name, metric_value in aux_loss.metrics.items():
+                        aux_metric_history.setdefault(metric_name, []).append(
+                            metric_value
+                        )
 
                 with th.no_grad():
                     log_ratio = log_prob - rollout_data.old_log_prob
@@ -516,6 +511,12 @@ class MaskableRecurrentPPO(OnPolicyAlgorithm):
         self.logger.record("train/clip_range", clip_range)
         if clip_range_vf_value is not None:
             self.logger.record("train/clip_range_vf", clip_range_vf_value)
+        if aux_losses:
+            self.logger.record("train/aux_loss", np.mean(aux_losses))
+        for metric_name, metric_values in sorted(aux_metric_history.items()):
+            if metric_name == "__total__":
+                continue
+            self.logger.record(f"train_aux/{metric_name}", np.mean(metric_values))
 
     def predict(  # type: ignore[override]
         self,

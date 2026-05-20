@@ -21,6 +21,7 @@ from stable_baselines3.common.utils import (
 from stable_baselines3.common.vec_env import VecEnv
 from torch.nn import functional as F
 
+from sb3x.common.auxiliary_losses import evaluate_actions_with_optional_aux
 from sb3x.common.hybrid_action import HybridAction, make_hybrid_action_spec
 from sb3x.common.maskable import (
     MaybeMasks,
@@ -63,24 +64,6 @@ def _forward_maskable_recurrent_policy(
     """Isolate the weakly-typed recurrent policy call boundary."""
     return policy.forward(
         obs,
-        lstm_states,
-        episode_starts,
-        action_masks=action_masks,
-    )
-
-
-def _evaluate_maskable_recurrent_actions(
-    policy: MaskableHybridRecurrentActorCriticPolicy,
-    obs: PolicyObs,
-    actions: th.Tensor,
-    lstm_states: RNNStates,
-    episode_starts: th.Tensor,
-    action_masks: MaybeMasks = None,
-) -> tuple[th.Tensor, th.Tensor, th.Tensor | None]:
-    """Isolate the weakly-typed recurrent action-evaluation boundary."""
-    return policy.evaluate_actions(
-        obs,
-        actions,
         lstm_states,
         episode_starts,
         action_masks=action_masks,
@@ -167,7 +150,7 @@ class MaskableHybridRecurrentPPO(HybridRecurrentPPO):
         """Return the rollout buffer narrowed to the maskable recurrent variants."""
         if not isinstance(
             self.rollout_buffer,
-            (MaskableRecurrentRolloutBuffer, MaskableRecurrentDictRolloutBuffer),
+            MaskableRecurrentRolloutBuffer | MaskableRecurrentDictRolloutBuffer,
         ):
             raise TypeError(f"{self.rollout_buffer} does not support action masking")
         return self.rollout_buffer
@@ -230,7 +213,7 @@ class MaskableHybridRecurrentPPO(HybridRecurrentPPO):
 
         self.clip_range = FloatSchedule(self.clip_range)
         if self.clip_range_vf is not None:
-            if isinstance(self.clip_range_vf, (float, int)):
+            if isinstance(self.clip_range_vf, float | int):
                 assert self.clip_range_vf > 0, (
                     "`clip_range_vf` must be positive, "
                     "pass `None` to deactivate vf clipping"
@@ -249,7 +232,7 @@ class MaskableHybridRecurrentPPO(HybridRecurrentPPO):
         """Collect recurrent rollouts with optional discrete-branch masks."""
         if not isinstance(
             rollout_buffer,
-            (MaskableRecurrentRolloutBuffer, MaskableRecurrentDictRolloutBuffer),
+            MaskableRecurrentRolloutBuffer | MaskableRecurrentDictRolloutBuffer,
         ):
             raise TypeError(f"{rollout_buffer} does not support action masking")
 
@@ -399,6 +382,8 @@ class MaskableHybridRecurrentPPO(HybridRecurrentPPO):
         entropy_losses = []
         pg_losses, value_losses = [], []
         clip_fractions = []
+        aux_losses: list[float] = []
+        aux_metric_history: dict[str, list[float]] = {}
         continue_training = True
 
         for epoch in range(self.n_epochs):
@@ -406,13 +391,16 @@ class MaskableHybridRecurrentPPO(HybridRecurrentPPO):
             for rollout_data in rollout_buffer.get(self.batch_size):
                 sequence_mask = rollout_data.sequence_mask > 1e-8
 
-                values, log_prob, entropy = _evaluate_maskable_recurrent_actions(
-                    policy,
-                    rollout_data.observations,
-                    rollout_data.actions,
-                    rollout_data.lstm_states,
-                    rollout_data.episode_starts,
-                    action_masks=rollout_data.action_masks,
+                values, log_prob, entropy, aux_loss = (
+                    evaluate_actions_with_optional_aux(
+                        policy,
+                        rollout_data.observations,
+                        rollout_data.actions,
+                        rollout_data.lstm_states,
+                        rollout_data.episode_starts,
+                        action_masks=rollout_data.action_masks,
+                        auxiliary_mask=sequence_mask,
+                    )
                 )
                 values = values.flatten()
 
@@ -465,6 +453,13 @@ class MaskableHybridRecurrentPPO(HybridRecurrentPPO):
                     + self.ent_coef * entropy_loss
                     + self.vf_coef * value_loss
                 )
+                if aux_loss is not None:
+                    loss = loss + aux_loss.total_loss
+                    aux_losses.append(float(aux_loss.total_loss.detach().cpu().item()))
+                    for metric_name, metric_value in aux_loss.metrics.items():
+                        aux_metric_history.setdefault(metric_name, []).append(
+                            metric_value
+                        )
 
                 with th.no_grad():
                     log_ratio = log_prob - rollout_data.old_log_prob
@@ -510,6 +505,12 @@ class MaskableHybridRecurrentPPO(HybridRecurrentPPO):
         self.logger.record("train/clip_range", clip_range)
         if clip_range_vf_value is not None:
             self.logger.record("train/clip_range_vf", clip_range_vf_value)
+        if aux_losses:
+            self.logger.record("train/aux_loss", np.mean(aux_losses))
+        for metric_name, metric_values in sorted(aux_metric_history.items()):
+            if metric_name == "__total__":
+                continue
+            self.logger.record(f"train_aux/{metric_name}", np.mean(metric_values))
 
     def predict(
         self,
