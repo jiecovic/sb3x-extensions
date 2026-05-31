@@ -9,7 +9,13 @@ from .distributions import (
     split_hybrid_action_params,
     split_hybrid_actions,
 )
-from .spaces import HybridAction, HybridActionSpec, make_hybrid_action_spec
+from .spaces import (
+    HybridAction,
+    HybridActionGroupNames,
+    HybridActionSpec,
+    make_hybrid_action_group_names,
+    make_hybrid_action_spec,
+)
 from .wrappers import (
     HybridActionEnvWrapper,
     HybridActionVecEnvWrapper,
@@ -24,6 +30,7 @@ __all__ = [
     "HybridAction",
     "HybridActionDistribution",
     "HybridActionEnvWrapper",
+    "HybridActionGroupNames",
     "HybridActionNet",
     "HybridActionSpec",
     "HybridActionVecEnvWrapper",
@@ -31,6 +38,7 @@ __all__ = [
     "combine_hybrid_actions",
     "get_wrapped_hybrid_action_spec",
     "has_public_hybrid_action_space",
+    "make_hybrid_action_group_names",
     "make_hybrid_action_spec",
     "prepare_hybrid_action_env",
     "split_hybrid_action_params",

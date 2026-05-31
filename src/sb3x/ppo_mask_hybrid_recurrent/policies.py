@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -17,6 +18,7 @@ from stable_baselines3.common.torch_layers import (
 from stable_baselines3.common.type_aliases import PyTorchObs, Schedule
 from torch import nn
 
+from sb3x.common.auxiliary_losses import PolicyActionEvaluation
 from sb3x.common.hybrid_action import MaskableHybridActionDistribution
 from sb3x.common.maskable import MaybeMasks
 from sb3x.common.recurrent import (
@@ -36,7 +38,10 @@ class MaskableHybridRecurrentActorCriticPolicy(HybridRecurrentActorCriticPolicy)
     action_dist: MaskableHybridActionDistribution
 
     def _make_action_dist(self) -> MaskableHybridActionDistribution:
-        return MaskableHybridActionDistribution(self.hybrid_action_spec)
+        return MaskableHybridActionDistribution(
+            self.hybrid_action_spec,
+            group_names=self.hybrid_action_group_names,
+        )
 
     def forward(
         self,
@@ -131,6 +136,23 @@ class MaskableHybridRecurrentActorCriticPolicy(HybridRecurrentActorCriticPolicy)
         episode_starts: th.Tensor,
         action_masks: MaybeMasks = None,
     ) -> tuple[th.Tensor, th.Tensor, th.Tensor | None]:
+        evaluation = self.evaluate_actions_with_entropy_components(
+            obs,
+            actions,
+            lstm_states,
+            episode_starts,
+            action_masks=action_masks,
+        )
+        return evaluation.values, evaluation.log_prob, evaluation.entropy
+
+    def evaluate_actions_with_entropy_components(
+        self,
+        obs: PyTorchObs,
+        actions: th.Tensor,
+        lstm_states: RNNStates,
+        episode_starts: th.Tensor,
+        action_masks: MaybeMasks = None,
+    ) -> PolicyActionEvaluation:
         """Evaluate masked log-probs and entropy for a training minibatch."""
         features = self.extract_features(obs)
         pi_features, vf_features = split_actor_critic_features(
@@ -164,7 +186,12 @@ class MaskableHybridRecurrentActorCriticPolicy(HybridRecurrentActorCriticPolicy)
 
         log_prob = distribution.log_prob(actions)
         values = self.value_net(latent_vf)
-        return values, log_prob, distribution.entropy()
+        return PolicyActionEvaluation(
+            values=values,
+            log_prob=log_prob,
+            entropy=distribution.entropy(),
+            entropy_components=distribution.entropy_components() or {},
+        )
 
     def _predict(
         self,
@@ -275,6 +302,7 @@ class MaskableHybridRecurrentActorCriticCnnPolicy(
         enable_critic_lstm: bool = True,
         lstm_kwargs: dict[str, Any] | None = None,
         hybrid_action_space: spaces.Dict | None = None,
+        hybrid_action_group_names: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         super().__init__(
             observation_space,
@@ -300,6 +328,7 @@ class MaskableHybridRecurrentActorCriticCnnPolicy(
             enable_critic_lstm=enable_critic_lstm,
             lstm_kwargs=lstm_kwargs,
             hybrid_action_space=hybrid_action_space,
+            hybrid_action_group_names=hybrid_action_group_names,
         )
 
 
@@ -333,6 +362,7 @@ class MaskableHybridRecurrentMultiInputActorCriticPolicy(
         enable_critic_lstm: bool = True,
         lstm_kwargs: dict[str, Any] | None = None,
         hybrid_action_space: spaces.Dict | None = None,
+        hybrid_action_group_names: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         super().__init__(
             observation_space,
@@ -358,6 +388,7 @@ class MaskableHybridRecurrentMultiInputActorCriticPolicy(
             enable_critic_lstm=enable_critic_lstm,
             lstm_kwargs=lstm_kwargs,
             hybrid_action_space=hybrid_action_space,
+            hybrid_action_group_names=hybrid_action_group_names,
         )
 
 

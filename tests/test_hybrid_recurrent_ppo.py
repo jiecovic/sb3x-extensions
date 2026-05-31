@@ -68,12 +68,34 @@ class HybridMemoryBanditEnv(gym.Env[np.ndarray, HybridAction]):
         return obs, reward, self._step >= 3, False, {}
 
 
-class DiscreteBanditEnv(HybridMemoryBanditEnv):
+class DiscreteBanditEnv(gym.Env[np.ndarray, np.int64]):
     """Wrong action-space shape for validation checks."""
 
     def __init__(self) -> None:
-        super().__init__()
+        self.observation_space = spaces.Box(
+            low=-1.0,
+            high=1.0,
+            shape=OBSERVATION_SHAPE,
+            dtype=np.float32,
+        )
         self.action_space = spaces.Discrete(2)
+
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: dict[str, object] | None = None,
+    ) -> tuple[np.ndarray, dict[str, object]]:
+        super().reset(seed=seed)
+        del options
+        return np.zeros(OBSERVATION_SHAPE, dtype=np.float32), {}
+
+    def step(
+        self,
+        action: np.int64,
+    ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]:
+        obs = np.zeros(OBSERVATION_SHAPE, dtype=np.float32)
+        return obs, float(action == 1), True, False, {}
 
 
 def _build_model(env: gym.Env[np.ndarray, HybridAction]) -> HybridRecurrentPPO:

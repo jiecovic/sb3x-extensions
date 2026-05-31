@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -16,6 +17,7 @@ from stable_baselines3.common.torch_layers import (
 from stable_baselines3.common.type_aliases import PyTorchObs, Schedule
 from torch import nn
 
+from sb3x.common.auxiliary_losses import PolicyActionEvaluation
 from sb3x.common.hybrid_action import MaskableHybridActionDistribution
 from sb3x.common.maskable import MaybeMasks
 from sb3x.ppo_hybrid_action.policies import HybridActionActorCriticPolicy
@@ -27,7 +29,10 @@ class MaskableHybridActionActorCriticPolicy(HybridActionActorCriticPolicy):
     action_dist: MaskableHybridActionDistribution
 
     def _make_action_dist(self) -> MaskableHybridActionDistribution:
-        return MaskableHybridActionDistribution(self.hybrid_action_spec)
+        return MaskableHybridActionDistribution(
+            self.hybrid_action_spec,
+            group_names=self.hybrid_action_group_names,
+        )
 
     def forward(
         self,
@@ -103,6 +108,19 @@ class MaskableHybridActionActorCriticPolicy(HybridActionActorCriticPolicy):
         actions: th.Tensor,
         action_masks: MaybeMasks = None,
     ) -> tuple[th.Tensor, th.Tensor, th.Tensor | None]:
+        evaluation = self.evaluate_actions_with_entropy_components(
+            obs,
+            actions,
+            action_masks=action_masks,
+        )
+        return evaluation.values, evaluation.log_prob, evaluation.entropy
+
+    def evaluate_actions_with_entropy_components(
+        self,
+        obs: PyTorchObs,
+        actions: th.Tensor,
+        action_masks: MaybeMasks = None,
+    ) -> PolicyActionEvaluation:
         latent_pi, latent_vf = self._extract_actor_critic_latents(obs)
 
         distribution = self._get_action_dist_from_latent(latent_pi)
@@ -110,7 +128,12 @@ class MaskableHybridActionActorCriticPolicy(HybridActionActorCriticPolicy):
         log_prob = distribution.log_prob(actions)
         values = self.value_net(latent_vf)
         entropy = distribution.entropy()
-        return values, log_prob, entropy
+        return PolicyActionEvaluation(
+            values=values,
+            log_prob=log_prob,
+            entropy=entropy,
+            entropy_components=distribution.entropy_components() or {},
+        )
 
     def _extract_actor_critic_latents(
         self,
@@ -175,6 +198,7 @@ class MaskableHybridActionActorCriticCnnPolicy(MaskableHybridActionActorCriticPo
         optimizer_class: type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: dict[str, Any] | None = None,
         hybrid_action_space: spaces.Dict | None = None,
+        hybrid_action_group_names: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         super().__init__(
             observation_space,
@@ -195,6 +219,7 @@ class MaskableHybridActionActorCriticCnnPolicy(MaskableHybridActionActorCriticPo
             optimizer_class=optimizer_class,
             optimizer_kwargs=optimizer_kwargs,
             hybrid_action_space=hybrid_action_space,
+            hybrid_action_group_names=hybrid_action_group_names,
         )
 
 
@@ -223,6 +248,7 @@ class MaskableHybridActionMultiInputActorCriticPolicy(
         optimizer_class: type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: dict[str, Any] | None = None,
         hybrid_action_space: spaces.Dict | None = None,
+        hybrid_action_group_names: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         super().__init__(
             observation_space,
@@ -243,6 +269,7 @@ class MaskableHybridActionMultiInputActorCriticPolicy(
             optimizer_class=optimizer_class,
             optimizer_kwargs=optimizer_kwargs,
             hybrid_action_space=hybrid_action_space,
+            hybrid_action_group_names=hybrid_action_group_names,
         )
 
 

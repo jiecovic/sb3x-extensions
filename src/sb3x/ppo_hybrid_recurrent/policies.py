@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from functools import partial
 from typing import Any
 
@@ -21,6 +22,7 @@ from torch import nn
 from sb3x.common.hybrid_action import (
     HybridActionDistribution,
     HybridActionSpec,
+    make_hybrid_action_group_names,
     make_hybrid_action_spec,
 )
 
@@ -31,7 +33,10 @@ class HybridRecurrentActorCriticPolicy(RecurrentActorCriticPolicy):
     action_dist: HybridActionDistribution
 
     def _make_action_dist(self) -> HybridActionDistribution:
-        return HybridActionDistribution(self.hybrid_action_spec)
+        return HybridActionDistribution(
+            self.hybrid_action_spec,
+            group_names=self.hybrid_action_group_names,
+        )
 
     def __init__(
         self,
@@ -58,6 +63,7 @@ class HybridRecurrentActorCriticPolicy(RecurrentActorCriticPolicy):
         enable_critic_lstm: bool = True,
         lstm_kwargs: dict[str, Any] | None = None,
         hybrid_action_space: spaces.Dict | None = None,
+        hybrid_action_group_names: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         if hybrid_action_space is None:
             raise ValueError("HybridRecurrentPPO policies require hybrid_action_space")
@@ -65,6 +71,10 @@ class HybridRecurrentActorCriticPolicy(RecurrentActorCriticPolicy):
             raise ValueError("HybridRecurrentPPO does not support gSDE")
 
         self.hybrid_action_spec = make_hybrid_action_spec(hybrid_action_space)
+        self.hybrid_action_group_names = make_hybrid_action_group_names(
+            self.hybrid_action_spec,
+            hybrid_action_group_names,
+        )
         _validate_flat_action_space(action_space, self.hybrid_action_spec)
 
         super().__init__(
@@ -162,6 +172,7 @@ class HybridRecurrentActorCriticCnnPolicy(HybridRecurrentActorCriticPolicy):
         enable_critic_lstm: bool = True,
         lstm_kwargs: dict[str, Any] | None = None,
         hybrid_action_space: spaces.Dict | None = None,
+        hybrid_action_group_names: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         super().__init__(
             observation_space,
@@ -187,6 +198,7 @@ class HybridRecurrentActorCriticCnnPolicy(HybridRecurrentActorCriticPolicy):
             enable_critic_lstm=enable_critic_lstm,
             lstm_kwargs=lstm_kwargs,
             hybrid_action_space=hybrid_action_space,
+            hybrid_action_group_names=hybrid_action_group_names,
         )
 
 
@@ -218,6 +230,7 @@ class HybridRecurrentMultiInputActorCriticPolicy(HybridRecurrentActorCriticPolic
         enable_critic_lstm: bool = True,
         lstm_kwargs: dict[str, Any] | None = None,
         hybrid_action_space: spaces.Dict | None = None,
+        hybrid_action_group_names: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         super().__init__(
             observation_space,
@@ -243,6 +256,7 @@ class HybridRecurrentMultiInputActorCriticPolicy(HybridRecurrentActorCriticPolic
             enable_critic_lstm=enable_critic_lstm,
             lstm_kwargs=lstm_kwargs,
             hybrid_action_space=hybrid_action_space,
+            hybrid_action_group_names=hybrid_action_group_names,
         )
 
 

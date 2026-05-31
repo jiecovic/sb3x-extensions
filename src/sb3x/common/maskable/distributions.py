@@ -178,10 +178,16 @@ class MaskableMultiCategoricalDistribution(MaskableDistribution):
     def entropy(self) -> th.Tensor:
         if not self.distributions:
             raise ValueError("Distribution parameters must be initialized first")
+        return self.entropy_components().sum(dim=1)
+
+    def entropy_components(self) -> th.Tensor:
+        """Return one entropy column per ``MultiDiscrete`` branch."""
+        if not self.distributions:
+            raise ValueError("Distribution parameters must be initialized first")
         return th.stack(
             [distribution.entropy() for distribution in self.distributions],
             dim=1,
-        ).sum(dim=1)
+        )
 
     def sample(self) -> th.Tensor:
         if not self.distributions:

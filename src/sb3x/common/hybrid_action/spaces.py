@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TypeAlias
 
@@ -148,6 +148,53 @@ class HybridActionSpec:
                 f"(n_envs, {self.flat_dim}), got {flat_actions.shape}"
             )
         return [self.unflatten_action(action) for action in flat_actions]
+
+
+@dataclass(frozen=True)
+class HybridActionGroupNames:
+    """Names for each entropy-producing branch in a hybrid action space."""
+
+    continuous: tuple[str, ...]
+    discrete: tuple[str, ...]
+
+    @property
+    def all(self) -> tuple[str, ...]:
+        return (*self.continuous, *self.discrete)
+
+
+def make_hybrid_action_group_names(
+    spec: HybridActionSpec,
+    names: Mapping[str, Sequence[str]] | None = None,
+) -> HybridActionGroupNames:
+    """Validate optional user-facing names for hybrid entropy components."""
+    if names is None:
+        return HybridActionGroupNames(
+            continuous=tuple(
+                f"continuous_{index}" for index in range(spec.continuous_dim)
+            ),
+            discrete=tuple(f"discrete_{index}" for index in range(spec.discrete_dim)),
+        )
+
+    continuous = tuple(str(name) for name in names.get(CONTINUOUS_ACTION_KEY, ()))
+    discrete = tuple(str(name) for name in names.get(DISCRETE_ACTION_KEY, ()))
+    if len(continuous) != spec.continuous_dim:
+        raise ValueError(
+            "continuous action group names must match the continuous action size "
+            f"{spec.continuous_dim}, got {len(continuous)}"
+        )
+    if len(discrete) != spec.discrete_dim:
+        raise ValueError(
+            "discrete action group names must match the discrete action size "
+            f"{spec.discrete_dim}, got {len(discrete)}"
+        )
+
+    all_names = (*continuous, *discrete)
+    if len(set(all_names)) != len(all_names):
+        raise ValueError("hybrid action group names must be unique")
+    if any(not name for name in all_names):
+        raise ValueError("hybrid action group names must be non-empty")
+
+    return HybridActionGroupNames(continuous=continuous, discrete=discrete)
 
 
 def make_hybrid_action_spec(action_space: spaces.Space) -> HybridActionSpec:

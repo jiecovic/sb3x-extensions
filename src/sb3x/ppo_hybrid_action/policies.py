@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from functools import partial
 from typing import Any
 
@@ -21,6 +22,7 @@ from torch import nn
 from sb3x.common.hybrid_action import (
     HybridActionDistribution,
     HybridActionSpec,
+    make_hybrid_action_group_names,
     make_hybrid_action_spec,
 )
 
@@ -31,7 +33,10 @@ class HybridActionActorCriticPolicy(ActorCriticPolicy):
     action_dist: HybridActionDistribution
 
     def _make_action_dist(self) -> HybridActionDistribution:
-        return HybridActionDistribution(self.hybrid_action_spec)
+        return HybridActionDistribution(
+            self.hybrid_action_spec,
+            group_names=self.hybrid_action_group_names,
+        )
 
     def __init__(
         self,
@@ -53,6 +58,7 @@ class HybridActionActorCriticPolicy(ActorCriticPolicy):
         optimizer_class: type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: dict[str, Any] | None = None,
         hybrid_action_space: spaces.Dict | None = None,
+        hybrid_action_group_names: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         if hybrid_action_space is None:
             raise ValueError("HybridActionPPO policies require hybrid_action_space")
@@ -60,6 +66,10 @@ class HybridActionActorCriticPolicy(ActorCriticPolicy):
             raise ValueError("HybridActionPPO does not support gSDE")
 
         self.hybrid_action_spec = make_hybrid_action_spec(hybrid_action_space)
+        self.hybrid_action_group_names = make_hybrid_action_group_names(
+            self.hybrid_action_spec,
+            hybrid_action_group_names,
+        )
         _validate_flat_action_space(action_space, self.hybrid_action_spec)
 
         super().__init__(
@@ -147,6 +157,7 @@ class HybridActionActorCriticCnnPolicy(HybridActionActorCriticPolicy):
         optimizer_class: type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: dict[str, Any] | None = None,
         hybrid_action_space: spaces.Dict | None = None,
+        hybrid_action_group_names: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         super().__init__(
             observation_space,
@@ -167,6 +178,7 @@ class HybridActionActorCriticCnnPolicy(HybridActionActorCriticPolicy):
             optimizer_class=optimizer_class,
             optimizer_kwargs=optimizer_kwargs,
             hybrid_action_space=hybrid_action_space,
+            hybrid_action_group_names=hybrid_action_group_names,
         )
 
 
@@ -193,6 +205,7 @@ class HybridActionMultiInputActorCriticPolicy(HybridActionActorCriticPolicy):
         optimizer_class: type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: dict[str, Any] | None = None,
         hybrid_action_space: spaces.Dict | None = None,
+        hybrid_action_group_names: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         super().__init__(
             observation_space,
@@ -213,6 +226,7 @@ class HybridActionMultiInputActorCriticPolicy(HybridActionActorCriticPolicy):
             optimizer_class=optimizer_class,
             optimizer_kwargs=optimizer_kwargs,
             hybrid_action_space=hybrid_action_space,
+            hybrid_action_group_names=hybrid_action_group_names,
         )
 
 

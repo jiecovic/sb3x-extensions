@@ -14,7 +14,11 @@ from torch import nn
 
 from sb3x.common.maskable import MaskableMultiCategoricalDistribution, MaybeMasks
 
-from .spaces import HybridActionSpec
+from .spaces import (
+    HybridActionGroupNames,
+    HybridActionSpec,
+    make_hybrid_action_group_names,
+)
 
 SelfBaseHybridActionDistribution = TypeVar(
     "SelfBaseHybridActionDistribution",
@@ -82,9 +86,19 @@ class BaseHybridActionDistribution(Distribution):
 
     discrete_dist: Distribution
 
-    def __init__(self, spec: HybridActionSpec, discrete_dist: Distribution) -> None:
+    def __init__(
+        self,
+        spec: HybridActionSpec,
+        discrete_dist: Distribution,
+        group_names: HybridActionGroupNames | None = None,
+    ) -> None:
         super().__init__()
         self.spec = spec
+        self.group_names = (
+            group_names
+            if group_names is not None
+            else make_hybrid_action_group_names(spec)
+        )
         self.continuous_dist = DiagGaussianDistribution(spec.continuous_dim)
         self.discrete_dist = discrete_dist
 
@@ -133,6 +147,28 @@ class BaseHybridActionDistribution(Distribution):
             return None
         return continuous_entropy + discrete_entropy
 
+    def entropy_components(self) -> dict[str, th.Tensor] | None:
+        """Return one per-sample entropy tensor for each named action group."""
+        continuous_entropy = self.continuous_dist.distribution.entropy()
+        discrete_entropy = _discrete_entropy_components(self.discrete_dist)
+        if continuous_entropy is None or discrete_entropy is None:
+            return None
+
+        components: dict[str, th.Tensor] = {}
+        for name, entropy in zip(
+            self.group_names.continuous,
+            th.unbind(continuous_entropy, dim=1),
+            strict=True,
+        ):
+            components[name] = entropy
+        for name, entropy in zip(
+            self.group_names.discrete,
+            th.unbind(discrete_entropy, dim=1),
+            strict=True,
+        ):
+            components[name] = entropy
+        return components
+
     def sample(self) -> th.Tensor:
         return combine_hybrid_actions(
             self.continuous_dist.sample(),
@@ -168,10 +204,15 @@ class HybridActionDistribution(BaseHybridActionDistribution):
 
     discrete_dist: MultiCategoricalDistribution
 
-    def __init__(self, spec: HybridActionSpec) -> None:
+    def __init__(
+        self,
+        spec: HybridActionSpec,
+        group_names: HybridActionGroupNames | None = None,
+    ) -> None:
         super().__init__(
             spec,
             MultiCategoricalDistribution(spec.discrete_action_dims),
+            group_names=group_names,
         )
 
 
@@ -180,12 +221,29 @@ class MaskableHybridActionDistribution(BaseHybridActionDistribution):
 
     discrete_dist: MaskableMultiCategoricalDistribution
 
-    def __init__(self, spec: HybridActionSpec) -> None:
+    def __init__(
+        self,
+        spec: HybridActionSpec,
+        group_names: HybridActionGroupNames | None = None,
+    ) -> None:
         super().__init__(
             spec,
             MaskableMultiCategoricalDistribution(spec.discrete_action_dims),
+            group_names=group_names,
         )
 
     def apply_masking(self, masks: MaybeMasks) -> None:
         """Apply masks only to the discrete branch."""
         self.discrete_dist.apply_masking(masks)
+
+
+def _discrete_entropy_components(distribution: Distribution) -> th.Tensor | None:
+    if isinstance(distribution, MaskableMultiCategoricalDistribution):
+        return distribution.entropy_components()
+    if isinstance(distribution, MultiCategoricalDistribution):
+        return th.stack(
+            [categorical.entropy() for categorical in distribution.distribution],
+            dim=1,
+        )
+    entropy = distribution.entropy()
+    return None if entropy is None else entropy.unsqueeze(dim=1)

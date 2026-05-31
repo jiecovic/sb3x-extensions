@@ -17,7 +17,7 @@ from sb3x import BoltzmannDQN
 OBSERVATION_SHAPE = (3,)
 
 
-class DiscreteBanditEnv(gym.Env[np.ndarray, int]):
+class DiscreteBanditEnv(gym.Env[np.ndarray, np.int64]):
     """One-step discrete env for DQN action-selection checks."""
 
     metadata: ClassVar[dict[str, list[str]]] = {"render_modes": []}
@@ -43,7 +43,7 @@ class DiscreteBanditEnv(gym.Env[np.ndarray, int]):
 
     def step(
         self,
-        action: int,
+        action: np.int64,
     ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]:
         reward = 1.0 if int(action) == 2 else 0.0
         obs = np.zeros(OBSERVATION_SHAPE, dtype=np.float32)

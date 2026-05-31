@@ -14,6 +14,7 @@ from sb3x import HybridActionPPO
 from sb3x.common.hybrid_action import (
     HybridAction,
     HybridActionDistribution,
+    make_hybrid_action_group_names,
     make_hybrid_action_spec,
 )
 from sb3x.common.hybrid_action.wrappers import HybridActionEnvWrapper
@@ -75,12 +76,34 @@ class HybridBanditEnv(gym.Env[np.ndarray, HybridAction]):
         return obs, reward, True, False, {}
 
 
-class DiscreteBanditEnv(HybridBanditEnv):
+class DiscreteBanditEnv(gym.Env[np.ndarray, np.int64]):
     """Wrong action-space shape for fast validation checks."""
 
     def __init__(self) -> None:
-        super().__init__()
+        self.observation_space = spaces.Box(
+            low=-1.0,
+            high=1.0,
+            shape=OBSERVATION_SHAPE,
+            dtype=np.float32,
+        )
         self.action_space = spaces.Discrete(2)
+
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: dict[str, object] | None = None,
+    ) -> tuple[np.ndarray, dict[str, object]]:
+        super().reset(seed=seed)
+        del options
+        return np.zeros(OBSERVATION_SHAPE, dtype=np.float32), {}
+
+    def step(
+        self,
+        action: np.int64,
+    ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]:
+        obs = np.zeros(OBSERVATION_SHAPE, dtype=np.float32)
+        return obs, float(action == 1), True, False, {}
 
 
 def test_hybrid_action_spec_roundtrip() -> None:
@@ -176,6 +199,33 @@ def test_hybrid_distribution_combines_component_log_prob_and_entropy() -> None:
 
     th.testing.assert_close(distribution.log_prob(actions), expected_log_prob)
     th.testing.assert_close(distribution.entropy(), expected_entropy)
+
+
+def test_hybrid_distribution_reports_named_entropy_components() -> None:
+    """Named entropy components should sum back to the normal entropy."""
+    spec = make_hybrid_action_spec(_hybrid_action_space())
+    group_names = make_hybrid_action_group_names(
+        spec,
+        {"continuous": ("steer",), "discrete": ("boost", "lean")},
+    )
+    distribution = HybridActionDistribution(spec, group_names=group_names)
+    action_params = th.zeros(
+        (2, spec.continuous_dim + spec.discrete_logits_dim),
+        dtype=th.float32,
+    )
+
+    distribution.proba_distribution(
+        action_params=action_params,
+        log_std=th.zeros(spec.continuous_dim, dtype=th.float32),
+    )
+    components = distribution.entropy_components()
+
+    assert components is not None
+    assert set(components) == {"steer", "boost", "lean"}
+    th.testing.assert_close(
+        sum(components.values()),
+        distribution.entropy(),
+    )
 
 
 def test_hybrid_action_ppo_learns_and_predicts_public_actions() -> None:

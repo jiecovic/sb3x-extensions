@@ -11,7 +11,7 @@ from gymnasium import spaces
 from sb3x import MaskableRecurrentPPO
 
 
-class MaskedBanditEnv(gym.Env[np.ndarray, int]):
+class MaskedBanditEnv(gym.Env[np.ndarray, np.int64]):
     """Tiny env exposing a constant invalid-action mask."""
 
     metadata = {"render_modes": []}
@@ -38,7 +38,7 @@ class MaskedBanditEnv(gym.Env[np.ndarray, int]):
 
     def step(
         self,
-        action: int,
+        action: np.int64,
     ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]:
         reward = 1.0 if int(action) == 1 else 0.0
         return np.array([0.0], dtype=np.float32), reward, True, False, {}
@@ -56,7 +56,7 @@ class UnmaskedBanditEnv(MaskedBanditEnv):
         return super().__getattribute__(name)
 
 
-def _build_model(env: gym.Env[np.ndarray, int]) -> MaskableRecurrentPPO:
+def _build_model(env: gym.Env[np.ndarray, np.int64]) -> MaskableRecurrentPPO:
     return MaskableRecurrentPPO(
         "MlpLstmPolicy",
         env,

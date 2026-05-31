@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, ClassVar, TypeVar
 
 import numpy as np
@@ -15,7 +16,13 @@ from stable_baselines3.common.utils import explained_variance, obs_as_tensor
 from stable_baselines3.common.vec_env import VecEnv
 from torch.nn import functional as F
 
-from sb3x.common.auxiliary_losses import evaluate_actions_with_optional_aux
+from sb3x.common.auxiliary_losses import evaluate_policy_actions_with_optional_aux
+from sb3x.common.entropy import (
+    entropy_loss as compute_entropy_loss,
+)
+from sb3x.common.entropy import (
+    normalize_entropy_group_weights,
+)
 from sb3x.common.hybrid_action import HybridAction, make_hybrid_action_spec
 from sb3x.common.maskable import (
     get_action_masks,
@@ -74,11 +81,15 @@ class MaskableHybridActionPPO(HybridActionPPO):
         stats_window_size: int = 100,
         tensorboard_log: str | None = None,
         policy_kwargs: dict[str, Any] | None = None,
+        entropy_group_weights: Mapping[str, float] | None = None,
         verbose: int = 0,
         seed: int | None = None,
         device: th.device | str = "auto",
         _init_setup_model: bool = True,
     ) -> None:
+        self.entropy_group_weights = normalize_entropy_group_weights(
+            entropy_group_weights
+        )
         super().__init__(
             policy=policy,
             env=env,
@@ -301,19 +312,20 @@ class MaskableHybridActionPPO(HybridActionPPO):
         clip_fractions = []
         aux_losses: list[float] = []
         aux_metric_history: dict[str, list[float]] = {}
+        entropy_component_history: dict[str, list[float]] = {}
         continue_training = True
 
         for epoch in range(self.n_epochs):
             approx_kl_divs = []
             for rollout_data in rollout_buffer.get(self.batch_size):
-                values, log_prob, entropy, aux_loss = (
-                    evaluate_actions_with_optional_aux(
-                        policy,
-                        rollout_data.observations,
-                        rollout_data.actions,
-                        action_masks=rollout_data.action_masks,
-                    )
+                evaluation = evaluate_policy_actions_with_optional_aux(
+                    policy,
+                    rollout_data.observations,
+                    rollout_data.actions,
+                    action_masks=rollout_data.action_masks,
                 )
+                values = evaluation.values
+                log_prob = evaluation.log_prob
                 values = values.flatten()
 
                 advantages = rollout_data.advantages
@@ -347,21 +359,32 @@ class MaskableHybridActionPPO(HybridActionPPO):
                 value_loss = F.mse_loss(rollout_data.returns, values_pred)
                 value_losses.append(value_loss.item())
 
-                if entropy is None:
-                    entropy_loss = -th.mean(-log_prob)
-                else:
-                    entropy_loss = -th.mean(entropy)
+                entropy_loss, entropy_metrics = compute_entropy_loss(
+                    log_prob=log_prob,
+                    entropy=evaluation.entropy,
+                    entropy_components=evaluation.entropy_components,
+                    entropy_group_weights=self.entropy_group_weights,
+                )
                 entropy_losses.append(entropy_loss.item())
+                for metric_name, metric_value in entropy_metrics.items():
+                    entropy_component_history.setdefault(metric_name, []).append(
+                        metric_value
+                    )
 
                 loss = (
                     policy_loss
                     + self.ent_coef * entropy_loss
                     + self.vf_coef * value_loss
                 )
-                if aux_loss is not None:
-                    loss = loss + aux_loss.total_loss
-                    aux_losses.append(float(aux_loss.total_loss.detach().cpu().item()))
-                    for metric_name, metric_value in aux_loss.metrics.items():
+                if evaluation.aux_loss is not None:
+                    loss = loss + evaluation.aux_loss.total_loss
+                    aux_losses.append(
+                        float(evaluation.aux_loss.total_loss.detach().cpu().item())
+                    )
+                    for (
+                        metric_name,
+                        metric_value,
+                    ) in evaluation.aux_loss.metrics.items():
                         aux_metric_history.setdefault(metric_name, []).append(
                             metric_value
                         )
@@ -397,6 +420,10 @@ class MaskableHybridActionPPO(HybridActionPPO):
         )
 
         self.logger.record("train/entropy_loss", np.mean(entropy_losses))
+        for metric_name, metric_values in sorted(entropy_component_history.items()):
+            self.logger.record(f"train_entropy/{metric_name}", np.mean(metric_values))
+        for group_name, weight in sorted(self.entropy_group_weights.items()):
+            self.logger.record(f"train_entropy_weight/{group_name}", weight)
         self.logger.record("train/policy_gradient_loss", np.mean(pg_losses))
         self.logger.record("train/value_loss", np.mean(value_losses))
         self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
