@@ -391,6 +391,7 @@ class MaskableHybridRecurrentPPO(HybridRecurrentPPO):
             )
 
         entropy_losses = []
+        entropy_regularizer_losses = []
         pg_losses, value_losses = [], []
         clip_fractions = []
         aux_losses: list[float] = []
@@ -454,14 +455,19 @@ class MaskableHybridRecurrentPPO(HybridRecurrentPPO):
                 )
                 value_losses.append(value_loss.item())
 
-                entropy_loss, entropy_metrics = compute_entropy_loss(
+                (
+                    entropy_regularizer_loss,
+                    raw_entropy_loss,
+                    entropy_metrics,
+                ) = compute_entropy_loss(
                     log_prob=log_prob,
                     entropy=evaluation.entropy,
                     entropy_components=evaluation.entropy_components,
                     entropy_group_weights=self.entropy_group_weights,
                     sample_mask=sequence_mask,
                 )
-                entropy_losses.append(entropy_loss.item())
+                entropy_losses.append(raw_entropy_loss.item())
+                entropy_regularizer_losses.append(entropy_regularizer_loss.item())
                 for metric_name, metric_value in entropy_metrics.items():
                     entropy_component_history.setdefault(metric_name, []).append(
                         metric_value
@@ -469,7 +475,7 @@ class MaskableHybridRecurrentPPO(HybridRecurrentPPO):
 
                 loss = (
                     policy_loss
-                    + self.ent_coef * entropy_loss
+                    + self.ent_coef * entropy_regularizer_loss
                     + self.vf_coef * value_loss
                 )
                 if evaluation.aux_loss is not None:
@@ -518,6 +524,11 @@ class MaskableHybridRecurrentPPO(HybridRecurrentPPO):
         )
 
         self.logger.record("train/entropy_loss", np.mean(entropy_losses))
+        if self.entropy_group_weights:
+            self.logger.record(
+                "train/entropy_regularizer_loss",
+                np.mean(entropy_regularizer_losses),
+            )
         for metric_name, metric_values in sorted(entropy_component_history.items()):
             self.logger.record(f"train_entropy/{metric_name}", np.mean(metric_values))
         for group_name, weight in sorted(self.entropy_group_weights.items()):

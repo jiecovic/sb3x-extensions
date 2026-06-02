@@ -16,7 +16,7 @@ def test_entropy_loss_can_weight_named_components() -> None:
         "pitch": th.tensor([2.0, 4.0]),
     }
 
-    loss, metrics = entropy_loss(
+    loss, raw_loss, metrics = entropy_loss(
         log_prob=log_prob,
         entropy=components["steer"] + components["pitch"],
         entropy_components=components,
@@ -24,7 +24,26 @@ def test_entropy_loss_can_weight_named_components() -> None:
     )
 
     th.testing.assert_close(loss, th.tensor(-1.5))
+    th.testing.assert_close(raw_loss, th.tensor(-5.0))
     assert metrics == {"pitch": 3.0, "steer": 2.0}
+
+
+def test_entropy_loss_keeps_raw_loss_when_weights_zero() -> None:
+    """Zero group weights should not hide the raw entropy diagnostic."""
+    components = {
+        "steer": th.tensor([1.0, 3.0]),
+        "pitch": th.tensor([2.0, 4.0]),
+    }
+
+    loss, raw_loss, _metrics = entropy_loss(
+        log_prob=th.zeros(2, dtype=th.float32),
+        entropy=components["steer"] + components["pitch"],
+        entropy_components=components,
+        entropy_group_weights={"pitch": 0.0},
+    )
+
+    th.testing.assert_close(loss, th.tensor(-0.0))
+    th.testing.assert_close(raw_loss, th.tensor(-5.0))
 
 
 def test_entropy_loss_rejects_unmatched_group_weights() -> None:

@@ -14,24 +14,27 @@ def entropy_loss(
     entropy_components: Mapping[str, th.Tensor],
     entropy_group_weights: Mapping[str, float],
     sample_mask: th.Tensor | None = None,
-) -> tuple[th.Tensor, dict[str, float]]:
-    """Compute PPO entropy loss with optional per-action-group weights."""
+) -> tuple[th.Tensor, th.Tensor, dict[str, float]]:
+    """Return optimizer entropy loss, raw entropy loss, and per-group metrics."""
+    raw_loss_tensor = _raw_entropy_loss(
+        log_prob=log_prob,
+        entropy=entropy,
+        sample_mask=sample_mask,
+    )
     if entropy_group_weights:
         loss_tensor = _weighted_entropy_loss(
             entropy_components=entropy_components,
             entropy_group_weights=entropy_group_weights,
             sample_mask=sample_mask,
         )
-    elif entropy is None:
-        loss_tensor = -_masked_mean(-log_prob, sample_mask)
     else:
-        loss_tensor = -_masked_mean(entropy, sample_mask)
+        loss_tensor = raw_loss_tensor
 
     metrics = {
         name: float(_masked_mean(component, sample_mask).detach().cpu().item())
         for name, component in entropy_components.items()
     }
-    return loss_tensor, metrics
+    return loss_tensor, raw_loss_tensor, metrics
 
 
 def normalize_entropy_group_weights(
@@ -81,6 +84,17 @@ def _weighted_entropy_loss(
             f"(requested: {requested_names}; available: {known_names})"
         )
     return -_masked_mean(weighted_entropy, sample_mask)
+
+
+def _raw_entropy_loss(
+    *,
+    log_prob: th.Tensor,
+    entropy: th.Tensor | None,
+    sample_mask: th.Tensor | None,
+) -> th.Tensor:
+    if entropy is None:
+        return -_masked_mean(-log_prob, sample_mask)
+    return -_masked_mean(entropy, sample_mask)
 
 
 def _masked_mean(values: th.Tensor, sample_mask: th.Tensor | None) -> th.Tensor:
