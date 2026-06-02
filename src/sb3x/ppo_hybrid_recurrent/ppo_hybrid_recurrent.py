@@ -201,7 +201,7 @@ class HybridRecurrentPPO(OnPolicyAlgorithm):
         """Return the rollout buffer narrowed to the recurrent variants."""
         if not isinstance(
             self.rollout_buffer,
-            (RecurrentRolloutBuffer, RecurrentDictRolloutBuffer),
+            RecurrentRolloutBuffer | RecurrentDictRolloutBuffer,
         ):
             raise TypeError(f"{self.rollout_buffer} doesn't support recurrent policy")
         return self.rollout_buffer
@@ -260,7 +260,7 @@ class HybridRecurrentPPO(OnPolicyAlgorithm):
 
         self.clip_range = FloatSchedule(self.clip_range)
         if self.clip_range_vf is not None:
-            if isinstance(self.clip_range_vf, (float, int)):
+            if isinstance(self.clip_range_vf, float | int):
                 assert self.clip_range_vf > 0, (
                     "`clip_range_vf` must be positive, "
                     "pass `None` to deactivate vf clipping"
@@ -278,7 +278,7 @@ class HybridRecurrentPPO(OnPolicyAlgorithm):
         """Collect experiences using the current recurrent hybrid policy."""
         assert isinstance(
             rollout_buffer,
-            (RecurrentRolloutBuffer, RecurrentDictRolloutBuffer),
+            RecurrentRolloutBuffer | RecurrentDictRolloutBuffer,
         ), f"{rollout_buffer} doesn't support recurrent policy"
 
         last_obs = self._last_obs
