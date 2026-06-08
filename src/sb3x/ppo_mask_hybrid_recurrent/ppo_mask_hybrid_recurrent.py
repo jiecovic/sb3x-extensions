@@ -539,7 +539,9 @@ class MaskableHybridRecurrentPPO(HybridRecurrentPPO):
         self.logger.record("train/clip_fraction", np.mean(clip_fractions))
         self.logger.record("train/loss", loss.item())
         self.logger.record("train/explained_variance", explained_var)
-        self.logger.record("train/std", th.exp(policy.log_std).mean().item())
+        log_std = getattr(policy, "log_std", None)
+        if isinstance(log_std, th.Tensor):
+            self.logger.record("train/std", th.exp(log_std).mean().item())
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/clip_range", clip_range)
         if clip_range_vf_value is not None:

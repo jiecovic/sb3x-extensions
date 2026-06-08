@@ -20,6 +20,8 @@ from stable_baselines3.common.type_aliases import Schedule
 from torch import nn
 
 from sb3x.common.hybrid_action import (
+    CONTINUOUS_LOG_STD_BOUNDS,
+    ContinuousLogStdMode,
     HybridActionDistribution,
     HybridActionSpec,
     make_hybrid_action_group_names,
@@ -36,6 +38,8 @@ class HybridActionActorCriticPolicy(ActorCriticPolicy):
         return HybridActionDistribution(
             self.hybrid_action_spec,
             group_names=self.hybrid_action_group_names,
+            continuous_log_std_mode=self.continuous_log_std_mode,
+            log_std_bounds=self.continuous_log_std_bounds,
         )
 
     def __init__(
@@ -59,12 +63,16 @@ class HybridActionActorCriticPolicy(ActorCriticPolicy):
         optimizer_kwargs: dict[str, Any] | None = None,
         hybrid_action_space: spaces.Dict | None = None,
         hybrid_action_group_names: Mapping[str, Sequence[str]] | None = None,
+        continuous_log_std_mode: ContinuousLogStdMode = "parameter",
+        continuous_log_std_bounds: tuple[float, float] = CONTINUOUS_LOG_STD_BOUNDS,
     ) -> None:
         if hybrid_action_space is None:
             raise ValueError("HybridActionPPO policies require hybrid_action_space")
         if use_sde:
             raise ValueError("HybridActionPPO does not support gSDE")
 
+        self.continuous_log_std_mode: ContinuousLogStdMode = continuous_log_std_mode
+        self.continuous_log_std_bounds = continuous_log_std_bounds
         self.hybrid_action_spec = make_hybrid_action_spec(hybrid_action_space)
         self.hybrid_action_group_names = make_hybrid_action_group_names(
             self.hybrid_action_spec,
@@ -98,10 +106,15 @@ class HybridActionActorCriticPolicy(ActorCriticPolicy):
 
         latent_dim_pi = self.mlp_extractor.latent_dim_pi
         self.action_dist = self._make_action_dist()
-        self.action_net, self.log_std = self.action_dist.proba_distribution_net(
+        self.action_net, log_std = self.action_dist.proba_distribution_net(
             latent_dim=latent_dim_pi,
             log_std_init=self.log_std_init,
         )
+        if log_std is None:
+            if hasattr(self, "log_std"):
+                delattr(self, "log_std")
+        else:
+            self.log_std = log_std
         self.value_net = nn.Linear(self.mlp_extractor.latent_dim_vf, 1)
 
         if self.ortho_init:
@@ -131,7 +144,10 @@ class HybridActionActorCriticPolicy(ActorCriticPolicy):
         latent_pi: th.Tensor,
     ) -> HybridActionDistribution:
         action_params = self.action_net(latent_pi)
-        return self.action_dist.proba_distribution(action_params, self.log_std)
+        return self.action_dist.proba_distribution(
+            action_params,
+            getattr(self, "log_std", None),
+        )
 
 
 class HybridActionActorCriticCnnPolicy(HybridActionActorCriticPolicy):
@@ -158,6 +174,8 @@ class HybridActionActorCriticCnnPolicy(HybridActionActorCriticPolicy):
         optimizer_kwargs: dict[str, Any] | None = None,
         hybrid_action_space: spaces.Dict | None = None,
         hybrid_action_group_names: Mapping[str, Sequence[str]] | None = None,
+        continuous_log_std_mode: ContinuousLogStdMode = "parameter",
+        continuous_log_std_bounds: tuple[float, float] = CONTINUOUS_LOG_STD_BOUNDS,
     ) -> None:
         super().__init__(
             observation_space,
@@ -179,6 +197,8 @@ class HybridActionActorCriticCnnPolicy(HybridActionActorCriticPolicy):
             optimizer_kwargs=optimizer_kwargs,
             hybrid_action_space=hybrid_action_space,
             hybrid_action_group_names=hybrid_action_group_names,
+            continuous_log_std_mode=continuous_log_std_mode,
+            continuous_log_std_bounds=continuous_log_std_bounds,
         )
 
 
@@ -206,6 +226,8 @@ class HybridActionMultiInputActorCriticPolicy(HybridActionActorCriticPolicy):
         optimizer_kwargs: dict[str, Any] | None = None,
         hybrid_action_space: spaces.Dict | None = None,
         hybrid_action_group_names: Mapping[str, Sequence[str]] | None = None,
+        continuous_log_std_mode: ContinuousLogStdMode = "parameter",
+        continuous_log_std_bounds: tuple[float, float] = CONTINUOUS_LOG_STD_BOUNDS,
     ) -> None:
         super().__init__(
             observation_space,
@@ -227,6 +249,8 @@ class HybridActionMultiInputActorCriticPolicy(HybridActionActorCriticPolicy):
             optimizer_kwargs=optimizer_kwargs,
             hybrid_action_space=hybrid_action_space,
             hybrid_action_group_names=hybrid_action_group_names,
+            continuous_log_std_mode=continuous_log_std_mode,
+            continuous_log_std_bounds=continuous_log_std_bounds,
         )
 
 

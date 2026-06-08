@@ -19,7 +19,11 @@ from stable_baselines3.common.type_aliases import PyTorchObs, Schedule
 from torch import nn
 
 from sb3x.common.auxiliary_losses import PolicyActionEvaluation
-from sb3x.common.hybrid_action import MaskableHybridActionDistribution
+from sb3x.common.hybrid_action import (
+    CONTINUOUS_LOG_STD_BOUNDS,
+    ContinuousLogStdMode,
+    MaskableHybridActionDistribution,
+)
 from sb3x.common.maskable import MaybeMasks
 from sb3x.common.recurrent import (
     LSTMState,
@@ -41,6 +45,8 @@ class MaskableHybridRecurrentActorCriticPolicy(HybridRecurrentActorCriticPolicy)
         return MaskableHybridActionDistribution(
             self.hybrid_action_spec,
             group_names=self.hybrid_action_group_names,
+            continuous_log_std_mode=self.continuous_log_std_mode,
+            log_std_bounds=self.continuous_log_std_bounds,
         )
 
     def forward(
@@ -99,7 +105,10 @@ class MaskableHybridRecurrentActorCriticPolicy(HybridRecurrentActorCriticPolicy)
         latent_pi: th.Tensor,
     ) -> MaskableHybridActionDistribution:
         action_params = self.action_net(latent_pi)
-        return self.action_dist.proba_distribution(action_params, self.log_std)
+        return self.action_dist.proba_distribution(
+            action_params,
+            getattr(self, "log_std", None),
+        )
 
     def get_distribution(
         self,
@@ -303,6 +312,8 @@ class MaskableHybridRecurrentActorCriticCnnPolicy(
         lstm_kwargs: dict[str, Any] | None = None,
         hybrid_action_space: spaces.Dict | None = None,
         hybrid_action_group_names: Mapping[str, Sequence[str]] | None = None,
+        continuous_log_std_mode: ContinuousLogStdMode = "parameter",
+        continuous_log_std_bounds: tuple[float, float] = CONTINUOUS_LOG_STD_BOUNDS,
     ) -> None:
         super().__init__(
             observation_space,
@@ -329,6 +340,8 @@ class MaskableHybridRecurrentActorCriticCnnPolicy(
             lstm_kwargs=lstm_kwargs,
             hybrid_action_space=hybrid_action_space,
             hybrid_action_group_names=hybrid_action_group_names,
+            continuous_log_std_mode=continuous_log_std_mode,
+            continuous_log_std_bounds=continuous_log_std_bounds,
         )
 
 
@@ -363,6 +376,8 @@ class MaskableHybridRecurrentMultiInputActorCriticPolicy(
         lstm_kwargs: dict[str, Any] | None = None,
         hybrid_action_space: spaces.Dict | None = None,
         hybrid_action_group_names: Mapping[str, Sequence[str]] | None = None,
+        continuous_log_std_mode: ContinuousLogStdMode = "parameter",
+        continuous_log_std_bounds: tuple[float, float] = CONTINUOUS_LOG_STD_BOUNDS,
     ) -> None:
         super().__init__(
             observation_space,
@@ -389,6 +404,8 @@ class MaskableHybridRecurrentMultiInputActorCriticPolicy(
             lstm_kwargs=lstm_kwargs,
             hybrid_action_space=hybrid_action_space,
             hybrid_action_group_names=hybrid_action_group_names,
+            continuous_log_std_mode=continuous_log_std_mode,
+            continuous_log_std_bounds=continuous_log_std_bounds,
         )
 
 

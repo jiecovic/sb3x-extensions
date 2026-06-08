@@ -14,8 +14,10 @@ from sb3x import HybridActionPPO
 from sb3x.common.hybrid_action import (
     HybridAction,
     HybridActionDistribution,
+    HybridActionNet,
     make_hybrid_action_group_names,
     make_hybrid_action_spec,
+    split_hybrid_action_params,
 )
 from sb3x.common.hybrid_action.wrappers import HybridActionEnvWrapper
 
@@ -228,6 +230,49 @@ def test_hybrid_distribution_reports_named_entropy_components() -> None:
     )
 
 
+def test_hybrid_distribution_supports_state_dependent_continuous_std() -> None:
+    """State-dependent std should come from the action head, not a global parameter."""
+    spec = make_hybrid_action_spec(_hybrid_action_space())
+    distribution = HybridActionDistribution(
+        spec,
+        continuous_log_std_mode="state_dependent",
+        log_std_bounds=(-2.0, 1.0),
+    )
+    action_net, log_std = distribution.proba_distribution_net(
+        latent_dim=OBSERVATION_SHAPE[0],
+        log_std_init=-0.5,
+    )
+    assert isinstance(action_net, HybridActionNet)
+    assert log_std is None
+
+    with th.no_grad():
+        assert action_net.continuous_log_std_net is not None
+        action_net.continuous_net.weight.fill_(0.0)
+        action_net.continuous_net.bias.fill_(0.0)
+        action_net.continuous_log_std_net.weight.copy_(th.tensor([[0.5, 0.0, 0.0]]))
+        action_net.continuous_log_std_net.bias.fill_(0.0)
+        action_net.discrete_net.weight.fill_(0.0)
+        action_net.discrete_net.bias.fill_(0.0)
+
+    latent = th.tensor([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]], dtype=th.float32)
+    action_params = action_net(latent)
+    _, continuous_log_std, _ = split_hybrid_action_params(
+        spec,
+        action_params,
+        continuous_log_std_mode="state_dependent",
+    )
+    assert continuous_log_std is not None
+
+    distribution.proba_distribution(action_params=action_params, log_std=None)
+
+    th.testing.assert_close(
+        continuous_log_std,
+        th.tensor([[-0.5], [0.5]], dtype=th.float32),
+    )
+    th.testing.assert_close(distribution.continuous_log_std(), continuous_log_std)
+    th.testing.assert_close(distribution.continuous_std(), continuous_log_std.exp())
+
+
 def test_hybrid_action_ppo_learns_and_predicts_public_actions() -> None:
     """Tiny end-to-end check through PPO, the env wrapper, and predict()."""
     env = HybridBanditEnv()
@@ -250,6 +295,32 @@ def test_hybrid_action_ppo_learns_and_predicts_public_actions() -> None:
     assert set(action.keys()) == {"continuous", "discrete"}
     assert action["continuous"].shape == (1,)
     assert action["discrete"].shape == (2,)
+    assert env.action_space.contains(action)
+
+
+def test_hybrid_action_ppo_accepts_state_dependent_continuous_std() -> None:
+    """State-dependent std mode should build without a global log_std parameter."""
+    env = HybridBanditEnv()
+    model = HybridActionPPO(
+        "MlpPolicy",
+        env,
+        seed=123,
+        device="cpu",
+        n_steps=4,
+        batch_size=4,
+        n_epochs=1,
+        policy_kwargs={
+            "net_arch": [8],
+            "continuous_log_std_mode": "state_dependent",
+            "log_std_init": -0.75,
+        },
+    )
+
+    assert not hasattr(model.policy, "log_std")
+    obs, _ = env.reset()
+    action, _ = model.predict(obs, deterministic=True)
+
+    assert not isinstance(action, list)
     assert env.action_space.contains(action)
 
 

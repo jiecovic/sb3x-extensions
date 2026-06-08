@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 import torch as th
 from stable_baselines3.common.distributions import (
@@ -24,10 +24,12 @@ SelfBaseHybridActionDistribution = TypeVar(
     "SelfBaseHybridActionDistribution",
     bound="BaseHybridActionDistribution",
 )
+ContinuousLogStdMode = Literal["parameter", "state_dependent"]
+CONTINUOUS_LOG_STD_BOUNDS = (-20.0, 2.0)
 
 
 class HybridActionNet(nn.Module):
-    """Policy head that emits continuous means and discrete logits."""
+    """Policy head that emits continuous means, optional stds, and discrete logits."""
 
     def __init__(
         self,
@@ -35,14 +37,42 @@ class HybridActionNet(nn.Module):
         latent_dim: int,
         continuous_dim: int,
         discrete_logits_dim: int,
+        continuous_log_std_mode: ContinuousLogStdMode = "parameter",
+        log_std_init: float = 0.0,
+        log_std_bounds: tuple[float, float] = CONTINUOUS_LOG_STD_BOUNDS,
     ) -> None:
         super().__init__()
+        if continuous_log_std_mode not in ("parameter", "state_dependent"):
+            raise ValueError(
+                "continuous_log_std_mode must be 'parameter' or 'state_dependent'"
+            )
+        if log_std_bounds[0] >= log_std_bounds[1]:
+            raise ValueError("continuous log std bounds must be ordered min < max")
+        self.continuous_log_std_mode: ContinuousLogStdMode = continuous_log_std_mode
+        self.log_std_init = float(log_std_init)
+        self.log_std_bounds = (float(log_std_bounds[0]), float(log_std_bounds[1]))
         self.continuous_net = nn.Linear(latent_dim, continuous_dim)
+        self.continuous_log_std_net = (
+            nn.Linear(latent_dim, continuous_dim)
+            if continuous_log_std_mode == "state_dependent"
+            else None
+        )
         self.discrete_net = nn.Linear(latent_dim, discrete_logits_dim)
 
     def forward(self, latent: th.Tensor) -> th.Tensor:
+        continuous_mean = self.continuous_net(latent)
+        if self.continuous_log_std_net is None:
+            continuous_params = continuous_mean
+        else:
+            min_log_std, max_log_std = self.log_std_bounds
+            continuous_log_std = th.clamp(
+                self.continuous_log_std_net(latent) + self.log_std_init,
+                min=min_log_std,
+                max=max_log_std,
+            )
+            continuous_params = th.cat([continuous_mean, continuous_log_std], dim=1)
         return th.cat(
-            [self.continuous_net(latent), self.discrete_net(latent)],
+            [continuous_params, self.discrete_net(latent)],
             dim=1,
         )
 
@@ -50,14 +80,27 @@ class HybridActionNet(nn.Module):
 def split_hybrid_action_params(
     spec: HybridActionSpec,
     action_params: th.Tensor,
-) -> tuple[th.Tensor, th.Tensor]:
-    """Split flat policy-head output into continuous means and discrete logits."""
-    continuous_mean, discrete_logits = th.split(
+    *,
+    continuous_log_std_mode: ContinuousLogStdMode = "parameter",
+) -> tuple[th.Tensor, th.Tensor | None, th.Tensor]:
+    """Split flat policy-head output into continuous params and discrete logits."""
+    if continuous_log_std_mode == "parameter":
+        continuous_mean, discrete_logits = th.split(
+            action_params,
+            [spec.continuous_dim, spec.discrete_logits_dim],
+            dim=1,
+        )
+        return continuous_mean, None, discrete_logits
+    if continuous_log_std_mode != "state_dependent":
+        raise ValueError(
+            "continuous_log_std_mode must be 'parameter' or 'state_dependent'"
+        )
+    continuous_mean, continuous_log_std, discrete_logits = th.split(
         action_params,
-        [spec.continuous_dim, spec.discrete_logits_dim],
+        [spec.continuous_dim, spec.continuous_dim, spec.discrete_logits_dim],
         dim=1,
     )
-    return continuous_mean, discrete_logits
+    return continuous_mean, continuous_log_std, discrete_logits
 
 
 def split_hybrid_actions(
@@ -91,9 +134,17 @@ class BaseHybridActionDistribution(Distribution):
         spec: HybridActionSpec,
         discrete_dist: Distribution,
         group_names: HybridActionGroupNames | None = None,
+        continuous_log_std_mode: ContinuousLogStdMode = "parameter",
+        log_std_bounds: tuple[float, float] = CONTINUOUS_LOG_STD_BOUNDS,
     ) -> None:
         super().__init__()
+        if continuous_log_std_mode not in ("parameter", "state_dependent"):
+            raise ValueError(
+                "continuous_log_std_mode must be 'parameter' or 'state_dependent'"
+            )
         self.spec = spec
+        self.continuous_log_std_mode: ContinuousLogStdMode = continuous_log_std_mode
+        self.log_std_bounds = (float(log_std_bounds[0]), float(log_std_bounds[1]))
         self.group_names = (
             group_names
             if group_names is not None
@@ -106,12 +157,17 @@ class BaseHybridActionDistribution(Distribution):
         self,
         latent_dim: int,
         log_std_init: float = 0.0,
-    ) -> tuple[nn.Module, nn.Parameter]:
+    ) -> tuple[nn.Module, nn.Parameter | None]:
         action_net = HybridActionNet(
             latent_dim=latent_dim,
             continuous_dim=self.spec.continuous_dim,
             discrete_logits_dim=self.spec.discrete_logits_dim,
+            continuous_log_std_mode=self.continuous_log_std_mode,
+            log_std_init=log_std_init,
+            log_std_bounds=self.log_std_bounds,
         )
+        if self.continuous_log_std_mode == "state_dependent":
+            return action_net, None
         log_std = nn.Parameter(
             th.ones(self.spec.continuous_dim) * log_std_init,
             requires_grad=True,
@@ -121,15 +177,32 @@ class BaseHybridActionDistribution(Distribution):
     def proba_distribution(
         self: SelfBaseHybridActionDistribution,
         action_params: th.Tensor,
-        log_std: th.Tensor,
+        log_std: th.Tensor | None,
     ) -> SelfBaseHybridActionDistribution:
-        continuous_mean, discrete_logits = split_hybrid_action_params(
-            self.spec,
-            action_params,
+        continuous_mean, continuous_log_std, discrete_logits = (
+            split_hybrid_action_params(
+                self.spec,
+                action_params,
+                continuous_log_std_mode=self.continuous_log_std_mode,
+            )
         )
+        if continuous_log_std is not None:
+            log_std = continuous_log_std
+        if log_std is None:
+            raise TypeError("hybrid action distribution requires continuous log std")
         self.continuous_dist.proba_distribution(continuous_mean, log_std)
         self.discrete_dist.proba_distribution(discrete_logits)
         return self
+
+    def continuous_log_std(self) -> th.Tensor:
+        """Return per-sample continuous log std for the current distribution."""
+
+        return self.continuous_dist.distribution.scale.log()
+
+    def continuous_std(self) -> th.Tensor:
+        """Return per-sample continuous std for the current distribution."""
+
+        return self.continuous_dist.distribution.scale
 
     def log_prob(self, actions: th.Tensor) -> th.Tensor:
         continuous_actions, discrete_actions = split_hybrid_actions(
@@ -184,7 +257,7 @@ class BaseHybridActionDistribution(Distribution):
     def actions_from_params(
         self,
         action_params: th.Tensor,
-        log_std: th.Tensor,
+        log_std: th.Tensor | None,
         deterministic: bool = False,
     ) -> th.Tensor:
         self.proba_distribution(action_params, log_std)
@@ -193,7 +266,7 @@ class BaseHybridActionDistribution(Distribution):
     def log_prob_from_params(
         self,
         action_params: th.Tensor,
-        log_std: th.Tensor,
+        log_std: th.Tensor | None,
     ) -> tuple[th.Tensor, th.Tensor]:
         actions = self.actions_from_params(action_params, log_std)
         return actions, self.log_prob(actions)
@@ -208,11 +281,15 @@ class HybridActionDistribution(BaseHybridActionDistribution):
         self,
         spec: HybridActionSpec,
         group_names: HybridActionGroupNames | None = None,
+        continuous_log_std_mode: ContinuousLogStdMode = "parameter",
+        log_std_bounds: tuple[float, float] = CONTINUOUS_LOG_STD_BOUNDS,
     ) -> None:
         super().__init__(
             spec,
             MultiCategoricalDistribution(spec.discrete_action_dims),
             group_names=group_names,
+            continuous_log_std_mode=continuous_log_std_mode,
+            log_std_bounds=log_std_bounds,
         )
 
 
@@ -225,11 +302,15 @@ class MaskableHybridActionDistribution(BaseHybridActionDistribution):
         self,
         spec: HybridActionSpec,
         group_names: HybridActionGroupNames | None = None,
+        continuous_log_std_mode: ContinuousLogStdMode = "parameter",
+        log_std_bounds: tuple[float, float] = CONTINUOUS_LOG_STD_BOUNDS,
     ) -> None:
         super().__init__(
             spec,
             MaskableMultiCategoricalDistribution(spec.discrete_action_dims),
             group_names=group_names,
+            continuous_log_std_mode=continuous_log_std_mode,
+            log_std_bounds=log_std_bounds,
         )
 
     def apply_masking(self, masks: MaybeMasks) -> None:

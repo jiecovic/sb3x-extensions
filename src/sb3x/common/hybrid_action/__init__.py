@@ -1,7 +1,9 @@
 """Shared helpers for hybrid continuous/discrete action spaces."""
 
 from .distributions import (
+    CONTINUOUS_LOG_STD_BOUNDS,
     BaseHybridActionDistribution,
+    ContinuousLogStdMode,
     HybridActionDistribution,
     HybridActionNet,
     MaskableHybridActionDistribution,
@@ -27,6 +29,8 @@ from .wrappers import (
 
 __all__ = [
     "BaseHybridActionDistribution",
+    "CONTINUOUS_LOG_STD_BOUNDS",
+    "ContinuousLogStdMode",
     "HybridAction",
     "HybridActionDistribution",
     "HybridActionEnvWrapper",
