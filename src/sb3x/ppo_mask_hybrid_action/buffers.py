@@ -55,8 +55,8 @@ class MaskableHybridActionRolloutBuffer(RolloutBuffer):
         n_envs: int = 1,
         mask_dims: int = 0,
     ) -> None:
-        if mask_dims <= 0:
-            raise ValueError("mask_dims must be positive")
+        if mask_dims < 0:
+            raise ValueError("mask_dims must be non-negative")
         self.mask_dims = mask_dims
         super().__init__(
             buffer_size,
@@ -136,7 +136,7 @@ class MaskableHybridActionRolloutBuffer(RolloutBuffer):
             self.log_probs[batch_inds].flatten(),
             self.advantages[batch_inds].flatten(),
             self.returns[batch_inds].flatten(),
-            self.action_masks[batch_inds].reshape(-1, self.mask_dims),
+            self.action_masks[batch_inds].reshape(len(batch_inds), self.mask_dims),
         )
         return MaskableHybridActionRolloutBufferSamples(*map(self.to_torch, data))
 
@@ -157,8 +157,8 @@ class MaskableHybridActionDictRolloutBuffer(DictRolloutBuffer):
         n_envs: int = 1,
         mask_dims: int = 0,
     ) -> None:
-        if mask_dims <= 0:
-            raise ValueError("mask_dims must be positive")
+        if mask_dims < 0:
+            raise ValueError("mask_dims must be non-negative")
         self.mask_dims = mask_dims
         super().__init__(
             buffer_size,
@@ -244,6 +244,6 @@ class MaskableHybridActionDictRolloutBuffer(DictRolloutBuffer):
             advantages=self.to_torch(self.advantages[batch_inds].flatten()),
             returns=self.to_torch(self.returns[batch_inds].flatten()),
             action_masks=self.to_torch(
-                self.action_masks[batch_inds].reshape(-1, self.mask_dims)
+                self.action_masks[batch_inds].reshape(len(batch_inds), self.mask_dims)
             ),
         )

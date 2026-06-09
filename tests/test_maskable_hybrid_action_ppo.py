@@ -36,6 +36,32 @@ def _hybrid_action_space() -> spaces.Dict:
     )
 
 
+def _discrete_only_hybrid_action_space() -> spaces.Dict:
+    return spaces.Dict(
+        {
+            "continuous": spaces.Box(
+                low=np.empty(0, dtype=np.float32),
+                high=np.empty(0, dtype=np.float32),
+                dtype=np.float32,
+            ),
+            "discrete": spaces.MultiDiscrete([3, 2]),
+        }
+    )
+
+
+def _continuous_only_hybrid_action_space() -> spaces.Dict:
+    return spaces.Dict(
+        {
+            "continuous": spaces.Box(
+                low=np.array([-1.0], dtype=np.float32),
+                high=np.array([1.0], dtype=np.float32),
+                dtype=np.float32,
+            ),
+            "discrete": spaces.MultiDiscrete(np.array([], dtype=np.int64)),
+        }
+    )
+
+
 class MaskedHybridBanditEnv(gym.Env[np.ndarray, HybridAction]):
     """One-step hybrid env exposing a discrete-branch action mask."""
 
@@ -98,6 +124,58 @@ class UnmaskedHybridBanditEnv(MaskedHybridBanditEnv):
         if name == "action_masks":
             raise AttributeError(name)
         return super().__getattribute__(name)
+
+
+class DiscreteOnlyHybridBanditEnv(MaskedHybridBanditEnv):
+    """Hybrid-shaped env whose trainable action lives only in the discrete branch."""
+
+    def __init__(self) -> None:
+        super().__init__(ACTION_MASK)
+        self.action_space = _discrete_only_hybrid_action_space()
+
+    def step(
+        self,
+        action: HybridAction,
+    ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]:
+        assert self.action_space.contains(action)
+        assert action["continuous"].shape == (0,)
+        target_discrete = np.array_equal(action["discrete"], np.array([1, 0]))
+        reward = 1.0 if target_discrete else 0.0
+        return np.zeros(OBSERVATION_SHAPE, dtype=np.float32), reward, True, False, {}
+
+
+class ContinuousOnlyHybridBanditEnv(gym.Env[np.ndarray, HybridAction]):
+    """Hybrid-shaped env whose trainable action lives only in the continuous branch."""
+
+    metadata = {"render_modes": []}
+
+    def __init__(self) -> None:
+        self.observation_space = spaces.Box(
+            low=-1.0,
+            high=1.0,
+            shape=OBSERVATION_SHAPE,
+            dtype=np.float32,
+        )
+        self.action_space = _continuous_only_hybrid_action_space()
+
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: dict[str, object] | None = None,
+    ) -> tuple[np.ndarray, dict[str, object]]:
+        super().reset(seed=seed)
+        del options
+        return np.zeros(OBSERVATION_SHAPE, dtype=np.float32), {}
+
+    def step(
+        self,
+        action: HybridAction,
+    ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]:
+        assert self.action_space.contains(action)
+        assert action["discrete"].shape == (0,)
+        reward = 1.0 if action["continuous"][0] > 0.0 else 0.0
+        return np.zeros(OBSERVATION_SHAPE, dtype=np.float32), reward, True, False, {}
 
 
 def _build_maskable_model(
@@ -217,6 +295,40 @@ def test_learn_can_run_unmasked_when_requested() -> None:
         action_masks[0],
         ALL_VALID_ACTION_MASK.astype(np.float32),
     )
+
+
+def test_learn_accepts_discrete_only_hybrid_action_space() -> None:
+    """The universal hybrid policy should cover a zero-width continuous branch."""
+    env = DiscreteOnlyHybridBanditEnv()
+    model = _build_maskable_model(env)
+
+    model.learn(total_timesteps=4)
+    obs, _ = env.reset()
+    action, _ = model.predict(
+        obs,
+        deterministic=True,
+        action_masks=env.action_masks(),
+    )
+
+    assert not isinstance(action, list)
+    assert model.maskable_rollout_buffer.mask_dims == 5
+    assert env.action_space.contains(action)
+    assert action["continuous"].shape == (0,)
+
+
+def test_learn_accepts_continuous_only_hybrid_action_space_without_mask_api() -> None:
+    """No discrete branch means no action-mask contract is required."""
+    env = ContinuousOnlyHybridBanditEnv()
+    model = _build_maskable_model(env)
+
+    model.learn(total_timesteps=4)
+    obs, _ = env.reset()
+    action, _ = model.predict(obs, deterministic=True)
+
+    assert not isinstance(action, list)
+    assert model.maskable_rollout_buffer.mask_dims == 0
+    assert env.action_space.contains(action)
+    assert action["discrete"].shape == (0,)
 
 
 def test_multidimensional_multidiscrete_mask_dims_are_flattened() -> None:

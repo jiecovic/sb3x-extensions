@@ -37,6 +37,32 @@ def _hybrid_action_space() -> spaces.Dict:
     )
 
 
+def _discrete_only_hybrid_action_space() -> spaces.Dict:
+    return spaces.Dict(
+        {
+            "continuous": spaces.Box(
+                low=np.empty(0, dtype=np.float32),
+                high=np.empty(0, dtype=np.float32),
+                dtype=np.float32,
+            ),
+            "discrete": spaces.MultiDiscrete([3, 2]),
+        }
+    )
+
+
+def _continuous_only_hybrid_action_space() -> spaces.Dict:
+    return spaces.Dict(
+        {
+            "continuous": spaces.Box(
+                low=np.array([-1.0], dtype=np.float32),
+                high=np.array([1.0], dtype=np.float32),
+                dtype=np.float32,
+            ),
+            "discrete": spaces.MultiDiscrete(np.array([], dtype=np.int64)),
+        }
+    )
+
+
 class MaskedHybridMemoryEnv(gym.Env[np.ndarray, HybridAction]):
     """Tiny recurrent hybrid-action env exposing a discrete-branch mask."""
 
@@ -88,6 +114,66 @@ class UnmaskedHybridMemoryEnv(MaskedHybridMemoryEnv):
         if name == "action_masks":
             raise AttributeError(name)
         return super().__getattribute__(name)
+
+
+class DiscreteOnlyHybridMemoryEnv(MaskedHybridMemoryEnv):
+    """Recurrent hybrid env with only a discrete action branch."""
+
+    def __init__(self) -> None:
+        super().__init__(ACTION_MASK)
+        self.action_space = _discrete_only_hybrid_action_space()
+
+    def step(
+        self,
+        action: HybridAction,
+    ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]:
+        assert self.action_space.contains(action)
+        assert action["continuous"].shape == (0,)
+        self._step += 1
+
+        target_discrete = np.array_equal(action["discrete"], np.array([1, 0]))
+        reward = 1.0 if target_discrete else 0.0
+        obs = np.full(OBSERVATION_SHAPE, self._step / 4, dtype=np.float32)
+        return obs, reward, self._step >= 3, False, {}
+
+
+class ContinuousOnlyHybridMemoryEnv(gym.Env[np.ndarray, HybridAction]):
+    """Recurrent hybrid env with only a continuous action branch."""
+
+    metadata = {"render_modes": []}
+
+    def __init__(self) -> None:
+        self.observation_space = spaces.Box(
+            low=-1.0,
+            high=1.0,
+            shape=OBSERVATION_SHAPE,
+            dtype=np.float32,
+        )
+        self.action_space = _continuous_only_hybrid_action_space()
+        self._step = 0
+
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: dict[str, object] | None = None,
+    ) -> tuple[np.ndarray, dict[str, object]]:
+        super().reset(seed=seed)
+        del options
+        self._step = 0
+        return np.zeros(OBSERVATION_SHAPE, dtype=np.float32), {}
+
+    def step(
+        self,
+        action: HybridAction,
+    ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]:
+        assert self.action_space.contains(action)
+        assert action["discrete"].shape == (0,)
+        self._step += 1
+
+        reward = 1.0 if action["continuous"][0] > 0.0 else 0.0
+        obs = np.full(OBSERVATION_SHAPE, self._step / 4, dtype=np.float32)
+        return obs, reward, self._step >= 3, False, {}
 
 
 def _build_maskable_model(env: GymEnv) -> MaskableHybridRecurrentPPO:
@@ -211,6 +297,42 @@ def test_learn_can_run_unmasked_when_requested() -> None:
         action_masks[0],
         ALL_VALID_ACTION_MASK.astype(np.float32),
     )
+
+
+def test_learn_accepts_discrete_only_hybrid_action_space() -> None:
+    """The recurrent universal hybrid policy should allow no continuous branch."""
+    env = DiscreteOnlyHybridMemoryEnv()
+    model = _build_maskable_model(env)
+
+    model.learn(total_timesteps=4)
+    obs, _ = env.reset()
+    action, state = model.predict(
+        obs,
+        deterministic=True,
+        action_masks=env.action_masks(),
+    )
+
+    assert not isinstance(action, list)
+    assert model.maskable_rollout_buffer.mask_dims == 5
+    assert env.action_space.contains(action)
+    assert action["continuous"].shape == (0,)
+    assert state is not None
+
+
+def test_learn_accepts_continuous_only_hybrid_action_space_without_mask_api() -> None:
+    """No discrete branch means recurrent PPO can run without action masks."""
+    env = ContinuousOnlyHybridMemoryEnv()
+    model = _build_maskable_model(env)
+
+    model.learn(total_timesteps=4)
+    obs, _ = env.reset()
+    action, state = model.predict(obs, deterministic=True)
+
+    assert not isinstance(action, list)
+    assert model.maskable_rollout_buffer.mask_dims == 0
+    assert env.action_space.contains(action)
+    assert action["discrete"].shape == (0,)
+    assert state is not None
 
 
 def test_vectorized_predict_uses_one_mask_per_env() -> None:

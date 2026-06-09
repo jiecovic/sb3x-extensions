@@ -143,6 +143,8 @@ class MaskableMultiCategoricalDistribution(MaskableDistribution):
         super().__init__()
         self.action_dims = action_dims
         self.distributions: list[MaskableCategorical] = []
+        self._last_batch_size: int | None = None
+        self._last_device = th.device("cpu")
 
     def proba_distribution_net(self, latent_dim: int) -> nn.Module:
         return nn.Linear(latent_dim, sum(self.action_dims))
@@ -151,7 +153,20 @@ class MaskableMultiCategoricalDistribution(MaskableDistribution):
         self: SelfMaskableMultiCategoricalDistribution,
         action_logits: th.Tensor,
     ) -> SelfMaskableMultiCategoricalDistribution:
+        if not self.action_dims:
+            if action_logits.ndim != 2 or action_logits.shape[1] != 0:
+                raise ValueError(
+                    "Empty MultiDiscrete distributions require logits with shape "
+                    f"(batch, 0), got {tuple(action_logits.shape)}"
+                )
+            self._last_batch_size = int(action_logits.shape[0])
+            self._last_device = action_logits.device
+            self.distributions = []
+            return self
+
         reshaped_logits = action_logits.view(-1, sum(self.action_dims))
+        self._last_batch_size = int(reshaped_logits.shape[0])
+        self._last_device = reshaped_logits.device
         self.distributions = [
             MaskableCategorical(logits=split)
             for split in th.split(reshaped_logits, self.action_dims, dim=1)
@@ -159,6 +174,8 @@ class MaskableMultiCategoricalDistribution(MaskableDistribution):
         return self
 
     def log_prob(self, actions: th.Tensor) -> th.Tensor:
+        if not self.action_dims:
+            return actions.new_zeros((actions.shape[0],), dtype=th.float32)
         if not self.distributions:
             raise ValueError("Distribution parameters must be initialized first")
 
@@ -176,12 +193,17 @@ class MaskableMultiCategoricalDistribution(MaskableDistribution):
         ).sum(dim=1)
 
     def entropy(self) -> th.Tensor:
+        if not self.action_dims:
+            return self._empty_batch_tensor()
         if not self.distributions:
             raise ValueError("Distribution parameters must be initialized first")
         return self.entropy_components().sum(dim=1)
 
     def entropy_components(self) -> th.Tensor:
         """Return one entropy column per ``MultiDiscrete`` branch."""
+        if not self.action_dims:
+            batch_size = self._batch_size()
+            return th.zeros((batch_size, 0), dtype=th.float32, device=self._device())
         if not self.distributions:
             raise ValueError("Distribution parameters must be initialized first")
         return th.stack(
@@ -190,6 +212,9 @@ class MaskableMultiCategoricalDistribution(MaskableDistribution):
         )
 
     def sample(self) -> th.Tensor:
+        if not self.action_dims:
+            batch_size = self._batch_size()
+            return th.zeros((batch_size, 0), dtype=th.long, device=self._device())
         if not self.distributions:
             raise ValueError("Distribution parameters must be initialized first")
         return th.stack(
@@ -198,6 +223,9 @@ class MaskableMultiCategoricalDistribution(MaskableDistribution):
         )
 
     def mode(self) -> th.Tensor:
+        if not self.action_dims:
+            batch_size = self._batch_size()
+            return th.zeros((batch_size, 0), dtype=th.long, device=self._device())
         if not self.distributions:
             raise ValueError("Distribution parameters must be initialized first")
         return th.stack(
@@ -224,6 +252,8 @@ class MaskableMultiCategoricalDistribution(MaskableDistribution):
         return actions, self.log_prob(actions)
 
     def apply_masking(self, masks: MaybeMasks) -> None:
+        if not self.action_dims:
+            return
         if not self.distributions:
             raise ValueError("Distribution parameters must be initialized first")
 
@@ -238,6 +268,17 @@ class MaskableMultiCategoricalDistribution(MaskableDistribution):
             strict=True,
         ):
             distribution.apply_masking(split_mask)
+
+    def _empty_batch_tensor(self) -> th.Tensor:
+        return th.zeros(self._batch_size(), dtype=th.float32, device=self._device())
+
+    def _batch_size(self) -> int:
+        if self._last_batch_size is None:
+            raise ValueError("Distribution parameters must be initialized first")
+        return self._last_batch_size
+
+    def _device(self) -> th.device:
+        return self._last_device
 
 
 class MaskableBernoulliDistribution(MaskableMultiCategoricalDistribution):

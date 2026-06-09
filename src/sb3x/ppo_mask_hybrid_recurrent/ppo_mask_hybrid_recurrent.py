@@ -256,15 +256,15 @@ class MaskableHybridRecurrentPPO(HybridRecurrentPPO):
         policy = self.maskable_policy
         policy.set_training_mode(False)
 
-        if use_masking and not is_masking_supported(env):
+        n_steps = 0
+        action_masks = None
+        rollout_buffer.reset()
+        should_collect_masks = use_masking and rollout_buffer.mask_dims > 0
+        if should_collect_masks and not is_masking_supported(env):
             raise ValueError(
                 "Environment does not support action masking. Expose an "
                 "action_masks() method returning the discrete-branch mask."
             )
-
-        n_steps = 0
-        action_masks = None
-        rollout_buffer.reset()
         callback.on_rollout_start()
 
         lstm_states = deepcopy(self._last_lstm_states)
@@ -278,7 +278,7 @@ class MaskableHybridRecurrentPPO(HybridRecurrentPPO):
                     dtype=th.float32,
                     device=self.device,
                 )
-                if use_masking:
+                if should_collect_masks:
                     action_masks = get_action_masks(env)
                 actions, values, log_probs, lstm_states = (
                     _forward_maskable_recurrent_policy(

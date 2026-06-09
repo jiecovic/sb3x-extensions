@@ -45,8 +45,8 @@ class MaskableRecurrentRolloutBuffer(RecurrentRolloutBuffer):
         n_envs: int = 1,
         mask_dims: int | None = None,
     ) -> None:
-        if mask_dims is not None and mask_dims <= 0:
-            raise ValueError("mask_dims must be positive")
+        if mask_dims is not None and mask_dims < 0:
+            raise ValueError("mask_dims must be non-negative")
         self._explicit_mask_dims = mask_dims
         super().__init__(
             buffer_size,
@@ -224,8 +224,8 @@ class MaskableRecurrentDictRolloutBuffer(RecurrentDictRolloutBuffer):
         n_envs: int = 1,
         mask_dims: int | None = None,
     ) -> None:
-        if mask_dims is not None and mask_dims <= 0:
-            raise ValueError("mask_dims must be positive")
+        if mask_dims is not None and mask_dims < 0:
+            raise ValueError("mask_dims must be non-negative")
         self._explicit_mask_dims = mask_dims
         super().__init__(
             buffer_size,

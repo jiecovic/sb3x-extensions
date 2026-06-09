@@ -197,8 +197,9 @@ class MaskableHybridActionPPO(HybridActionPPO):
         n_steps = 0
         action_masks = None
         rollout_buffer.reset()
+        should_collect_masks = use_masking and rollout_buffer.mask_dims > 0
 
-        if use_masking and not is_masking_supported(env):
+        if should_collect_masks and not is_masking_supported(env):
             raise ValueError(
                 "Environment does not support action masking. Expose an "
                 "action_masks() method returning the discrete-branch mask."
@@ -209,7 +210,7 @@ class MaskableHybridActionPPO(HybridActionPPO):
         while n_steps < n_rollout_steps:
             with th.no_grad():
                 obs_tensor = obs_as_tensor(last_obs, self.device)
-                if use_masking:
+                if should_collect_masks:
                     action_masks = get_action_masks(env)
                 actions, values, log_probs = policy(
                     obs_tensor,

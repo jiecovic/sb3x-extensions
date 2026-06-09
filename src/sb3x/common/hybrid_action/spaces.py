@@ -227,6 +227,12 @@ def make_hybrid_action_spec(action_space: spaces.Space) -> HybridActionSpec:
         raise ValueError("MultiDiscrete branch dimensions must be positive")
     if np.any(discrete_space.start != 0):
         raise ValueError("MultiDiscrete branch must use zero-based actions")
+    if continuous_space.shape is not None:
+        continuous_dim = int(np.prod(continuous_space.shape, dtype=np.int64))
+    else:
+        continuous_dim = 0
+    if continuous_dim + int(discrete_space.nvec.size) == 0:
+        raise ValueError("Hybrid action space must expose at least one action")
 
     return HybridActionSpec(
         action_space=action_space,
