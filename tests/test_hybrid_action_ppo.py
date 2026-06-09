@@ -10,7 +10,6 @@ import pytest
 import torch as th
 from gymnasium import spaces
 
-from sb3x import HybridActionPPO
 from sb3x.common.hybrid_action import (
     HybridAction,
     HybridActionDistribution,
@@ -20,6 +19,7 @@ from sb3x.common.hybrid_action import (
     split_hybrid_action_params,
 )
 from sb3x.common.hybrid_action.wrappers import HybridActionEnvWrapper
+from sb3x.ppo_hybrid_action import HybridActionPPO
 
 OBSERVATION_SHAPE = (3,)
 

@@ -10,13 +10,14 @@ import pytest
 import torch as th
 from gymnasium import spaces
 
-from sb3x import HybridActionPPO, MaskableHybridActionPPO
 from sb3x.common.hybrid_action import HybridAction, HybridActionNet
 from sb3x.common.maskable import (
     MaskableMultiCategoricalDistribution,
     make_masked_proba_distribution,
     mask_dims_for_action_space,
 )
+from sb3x.ppo_hybrid_action import HybridActionPPO
+from sb3x.ppo_mask_hybrid_action import MaskableHybridActionPPO
 
 OBSERVATION_SHAPE = (3,)
 ACTION_MASK = np.array([False, True, True, True, False], dtype=bool)

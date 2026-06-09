@@ -9,8 +9,8 @@ import numpy as np
 from gymnasium import spaces
 from stable_baselines3.common.vec_env import DummyVecEnv
 
-from sb3x import HybridRecurrentPPO
 from sb3x.common.hybrid_action import HybridAction, HybridActionDistribution
+from sb3x.ppo_hybrid_recurrent import HybridRecurrentPPO
 
 OBSERVATION_SHAPE = (3,)
 

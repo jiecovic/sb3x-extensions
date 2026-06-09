@@ -30,13 +30,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "build",
-    "minigrid",
     "pyright",
     "pytest",
-    "rich",
     "ruff",
-    "tensorboard",
-    "tqdm",
 ]
 
 [project.urls]
@@ -59,7 +55,7 @@ testpaths = ["tests"]
 [tool.ruff]
 target-version = "py310"
 line-length = 88
-src = ["src", "tests", "scripts", "tools"]
+src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
@@ -69,6 +65,6 @@ docstring-code-format = true
 
 [tool.pyright]
 pythonVersion = "3.10"
-include = ["src", "tests", "scripts", "tools"]
+include = ["src", "tests"]
 typeCheckingMode = "basic"
 reportPrivateImportUsage = false

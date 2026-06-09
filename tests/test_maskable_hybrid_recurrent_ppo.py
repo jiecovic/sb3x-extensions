@@ -12,12 +12,13 @@ from gymnasium import spaces
 from stable_baselines3.common.type_aliases import GymEnv
 from stable_baselines3.common.vec_env import DummyVecEnv
 
-from sb3x import HybridRecurrentPPO, MaskableHybridRecurrentPPO
 from sb3x.common.hybrid_action import (
     HybridAction,
     HybridActionNet,
     MaskableHybridActionDistribution,
 )
+from sb3x.ppo_hybrid_recurrent import HybridRecurrentPPO
+from sb3x.ppo_mask_hybrid_recurrent import MaskableHybridRecurrentPPO
 
 OBSERVATION_SHAPE = (3,)
 ACTION_MASK = np.array([False, True, True, True, False], dtype=bool)

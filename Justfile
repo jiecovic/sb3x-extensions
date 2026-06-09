@@ -25,21 +25,9 @@ typecheck:
 test:
     {{python}} -m pytest
 
-test-minigrid:
-    {{python}} -m pytest tests/test_minigrid_recurrent_ppo.py
-
-train *args:
-    {{python}} -m tools.minigrid_memory.train {{args}}
-
-watch *args:
-    {{python}} -m tools.minigrid_memory.watch {{args}}
-
 build:
     {{python}} -m build
 
 check: format-check lint typecheck test
 
 ci: check build
-
-minigrid-compare *args:
-    {{python}} -m scripts.compare_minigrid_memory {{args}}
