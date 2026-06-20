@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 import torch as th
 from gymnasium import spaces
+from stable_baselines3.common.logger import configure
 
 from sb3x.common.hybrid_action import HybridAction, HybridActionNet
 from sb3x.common.maskable import (
@@ -296,6 +297,30 @@ def test_learn_can_run_unmasked_when_requested() -> None:
         action_masks[0],
         ALL_VALID_ACTION_MASK.astype(np.float32),
     )
+
+
+def test_train_does_not_log_legacy_global_std(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Maskable hybrid PPO should not emit the redundant global std metric."""
+    model = _build_maskable_model(MaskedHybridBanditEnv())
+    model.set_logger(configure(format_strings=[]))
+    recorded_keys: list[str] = []
+    original_record = model.logger.record
+
+    def record_metric(
+        key: str,
+        value: object,
+        exclude: str | tuple[str, ...] | None = None,
+    ) -> None:
+        recorded_keys.append(key)
+        original_record(key, value, exclude=exclude)
+
+    monkeypatch.setattr(model.logger, "record", record_metric)
+
+    model.learn(total_timesteps=4)
+
+    assert "train/std" not in recorded_keys
 
 
 def test_learn_accepts_discrete_only_hybrid_action_space() -> None:
