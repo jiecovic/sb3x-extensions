@@ -29,6 +29,7 @@ from sb3x.common.maskable import (
     is_masking_supported,
     mask_dims_for_action_space,
 )
+from sb3x.common.metrics import append_component_means
 from sb3x.ppo_hybrid_action import HybridActionPPO
 
 from .buffers import (
@@ -315,6 +316,7 @@ class MaskableHybridActionPPO(HybridActionPPO):
         aux_losses: list[float] = []
         aux_metric_history: dict[str, list[float]] = {}
         entropy_component_history: dict[str, list[float]] = {}
+        std_component_history: dict[str, list[float]] = {}
         continue_training = True
 
         for epoch in range(self.n_epochs):
@@ -377,6 +379,10 @@ class MaskableHybridActionPPO(HybridActionPPO):
                     entropy_component_history.setdefault(metric_name, []).append(
                         metric_value
                     )
+                append_component_means(
+                    std_component_history,
+                    evaluation.std_components,
+                )
 
                 loss = (
                     policy_loss
@@ -433,7 +439,11 @@ class MaskableHybridActionPPO(HybridActionPPO):
                 np.mean(entropy_regularizer_losses),
             )
         for metric_name, metric_values in sorted(entropy_component_history.items()):
+            if metric_name in std_component_history:
+                continue
             self.logger.record(f"train_entropy/{metric_name}", np.mean(metric_values))
+        for metric_name, metric_values in sorted(std_component_history.items()):
+            self.logger.record(f"train_std/{metric_name}", np.mean(metric_values))
         for group_name, weight in sorted(self.entropy_group_weights.items()):
             self.logger.record(f"train_entropy_weight/{group_name}", weight)
         self.logger.record("train/policy_gradient_loss", np.mean(pg_losses))

@@ -26,6 +26,7 @@ class PolicyActionEvaluation:
     entropy: th.Tensor | None
     aux_loss: PolicyAuxiliaryLoss | None = None
     entropy_components: Mapping[str, th.Tensor] = field(default_factory=dict)
+    std_components: Mapping[str, th.Tensor] = field(default_factory=dict)
 
 
 def evaluate_actions_with_optional_aux(
@@ -114,8 +115,18 @@ def _normalize_policy_action_evaluation(result: Any) -> PolicyActionEvaluation:
             aux_loss=aux_loss,
             entropy_components=entropy_components,
         )
+    if len(result) == 6:
+        values, log_prob, entropy, aux_loss, entropy_components, std_components = result
+        return PolicyActionEvaluation(
+            values=values,
+            log_prob=log_prob,
+            entropy=entropy,
+            aux_loss=aux_loss,
+            entropy_components=entropy_components,
+            std_components=std_components,
+        )
     raise TypeError(
-        f"Policy action evaluation must return 3, 4, or 5 values, got {len(result)}"
+        f"Policy action evaluation must return 3, 4, 5, or 6 values, got {len(result)}"
     )
 
 

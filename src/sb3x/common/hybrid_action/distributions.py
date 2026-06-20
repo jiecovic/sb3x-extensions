@@ -204,6 +204,17 @@ class BaseHybridActionDistribution(Distribution):
 
         return self.continuous_dist.distribution.scale
 
+    def std_components(self) -> dict[str, th.Tensor]:
+        """Return one per-sample std tensor for each named continuous action."""
+        return {
+            name: std
+            for name, std in zip(
+                self.group_names.continuous,
+                th.unbind(self.continuous_std(), dim=1),
+                strict=True,
+            )
+        }
+
     def log_prob(self, actions: th.Tensor) -> th.Tensor:
         continuous_actions, discrete_actions = split_hybrid_actions(
             self.spec,

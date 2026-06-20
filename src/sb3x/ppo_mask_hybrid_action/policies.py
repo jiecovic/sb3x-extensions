@@ -142,6 +142,7 @@ class MaskableHybridActionActorCriticPolicy(HybridActionActorCriticPolicy):
             log_prob=log_prob,
             entropy=entropy,
             entropy_components=distribution.entropy_components() or {},
+            std_components=distribution.std_components(),
         )
 
     def _extract_actor_critic_latents(

@@ -200,6 +200,7 @@ class MaskableHybridRecurrentActorCriticPolicy(HybridRecurrentActorCriticPolicy)
             log_prob=log_prob,
             entropy=distribution.entropy(),
             entropy_components=distribution.entropy_components() or {},
+            std_components=distribution.std_components(),
         )
 
     def _predict(

@@ -230,6 +230,32 @@ def test_hybrid_distribution_reports_named_entropy_components() -> None:
     )
 
 
+def test_hybrid_distribution_reports_named_std_components() -> None:
+    """Std diagnostics should be reported for named continuous groups only."""
+    spec = make_hybrid_action_spec(_hybrid_action_space())
+    group_names = make_hybrid_action_group_names(
+        spec,
+        {"continuous": ("steer",), "discrete": ("boost", "lean")},
+    )
+    distribution = HybridActionDistribution(spec, group_names=group_names)
+    action_params = th.zeros(
+        (2, spec.continuous_dim + spec.discrete_logits_dim),
+        dtype=th.float32,
+    )
+
+    distribution.proba_distribution(
+        action_params=action_params,
+        log_std=th.tensor([-0.5], dtype=th.float32),
+    )
+    components = distribution.std_components()
+
+    assert set(components) == {"steer"}
+    th.testing.assert_close(
+        components["steer"],
+        th.full((2,), np.exp(-0.5), dtype=th.float32),
+    )
+
+
 def test_hybrid_distribution_supports_state_dependent_continuous_std() -> None:
     """State-dependent std should come from the action head, not a global parameter."""
     spec = make_hybrid_action_spec(_hybrid_action_space())
