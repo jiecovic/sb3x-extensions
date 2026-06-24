@@ -51,13 +51,13 @@ class HybridActionNet(nn.Module):
         self.continuous_log_std_mode: ContinuousLogStdMode = continuous_log_std_mode
         self.log_std_init = float(log_std_init)
         self.log_std_bounds = (float(log_std_bounds[0]), float(log_std_bounds[1]))
-        self.continuous_net = nn.Linear(latent_dim, continuous_dim)
+        self.continuous_net = _branch_head(latent_dim, continuous_dim)
         self.continuous_log_std_net = (
-            nn.Linear(latent_dim, continuous_dim)
+            _branch_head(latent_dim, continuous_dim)
             if continuous_log_std_mode == "state_dependent"
             else None
         )
-        self.discrete_net = nn.Linear(latent_dim, discrete_logits_dim)
+        self.discrete_net = _branch_head(latent_dim, discrete_logits_dim)
 
     def forward(self, latent: th.Tensor) -> th.Tensor:
         continuous_mean = self.continuous_net(latent)
@@ -75,6 +75,26 @@ class HybridActionNet(nn.Module):
             [continuous_params, self.discrete_net(latent)],
             dim=1,
         )
+
+
+class _EmptyBranchHead(nn.Module):
+    """Return an empty branch tensor without creating zero-size parameters."""
+
+    in_features: int
+    out_features: int = 0
+
+    def __init__(self, latent_dim: int) -> None:
+        super().__init__()
+        self.in_features = int(latent_dim)
+
+    def forward(self, latent: th.Tensor) -> th.Tensor:
+        return latent.new_empty((*latent.shape[:-1], 0))
+
+
+def _branch_head(latent_dim: int, output_dim: int) -> nn.Module:
+    if output_dim <= 0:
+        return _EmptyBranchHead(latent_dim)
+    return nn.Linear(latent_dim, output_dim)
 
 
 def split_hybrid_action_params(
@@ -122,6 +142,10 @@ def combine_hybrid_actions(
 ) -> th.Tensor:
     """Combine branch actions into the flat action tensor used by SB3 buffers."""
     return th.cat([continuous_actions, discrete_actions.float()], dim=1)
+
+
+def _empty_branch_tensor(reference: th.Tensor) -> th.Tensor:
+    return reference.new_zeros((reference.shape[0], 0))
 
 
 class BaseHybridActionDistribution(Distribution):
@@ -220,13 +244,22 @@ class BaseHybridActionDistribution(Distribution):
             self.spec,
             actions,
         )
-        return self.continuous_dist.log_prob(
-            continuous_actions
-        ) + self.discrete_dist.log_prob(discrete_actions)
+        discrete_log_prob = (
+            actions.new_zeros((actions.shape[0],))
+            if not self.spec.discrete_action_dims
+            else self.discrete_dist.log_prob(discrete_actions)
+        )
+        return self.continuous_dist.log_prob(continuous_actions) + discrete_log_prob
 
     def entropy(self) -> th.Tensor | None:
         continuous_entropy = self.continuous_dist.entropy()
-        discrete_entropy = self.discrete_dist.entropy()
+        discrete_entropy = (
+            None
+            if continuous_entropy is None
+            else continuous_entropy.new_zeros(continuous_entropy.shape)
+        )
+        if self.spec.discrete_action_dims:
+            discrete_entropy = self.discrete_dist.entropy()
         if continuous_entropy is None or discrete_entropy is None:
             return None
         return continuous_entropy + discrete_entropy
@@ -234,7 +267,11 @@ class BaseHybridActionDistribution(Distribution):
     def entropy_components(self) -> dict[str, th.Tensor] | None:
         """Return one per-sample entropy tensor for each named action group."""
         continuous_entropy = self.continuous_dist.distribution.entropy()
-        discrete_entropy = _discrete_entropy_components(self.discrete_dist)
+        discrete_entropy = (
+            continuous_entropy.new_zeros((continuous_entropy.shape[0], 0))
+            if not self.spec.discrete_action_dims
+            else _discrete_entropy_components(self.discrete_dist)
+        )
         if continuous_entropy is None or discrete_entropy is None:
             return None
 
@@ -254,15 +291,25 @@ class BaseHybridActionDistribution(Distribution):
         return components
 
     def sample(self) -> th.Tensor:
+        continuous_actions = self.continuous_dist.sample()
         return combine_hybrid_actions(
-            self.continuous_dist.sample(),
-            self.discrete_dist.sample(),
+            continuous_actions,
+            (
+                _empty_branch_tensor(continuous_actions)
+                if not self.spec.discrete_action_dims
+                else self.discrete_dist.sample()
+            ),
         )
 
     def mode(self) -> th.Tensor:
+        continuous_actions = self.continuous_dist.mode()
         return combine_hybrid_actions(
-            self.continuous_dist.mode(),
-            self.discrete_dist.mode(),
+            continuous_actions,
+            (
+                _empty_branch_tensor(continuous_actions)
+                if not self.spec.discrete_action_dims
+                else self.discrete_dist.mode()
+            ),
         )
 
     def actions_from_params(

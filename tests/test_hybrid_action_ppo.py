@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import gymnasium as gym
@@ -33,6 +34,32 @@ def _hybrid_action_space() -> spaces.Dict:
                 dtype=np.float32,
             ),
             "discrete": spaces.MultiDiscrete([3, 2]),
+        }
+    )
+
+
+def _discrete_only_hybrid_action_space() -> spaces.Dict:
+    return spaces.Dict(
+        {
+            "continuous": spaces.Box(
+                low=np.empty(0, dtype=np.float32),
+                high=np.empty(0, dtype=np.float32),
+                dtype=np.float32,
+            ),
+            "discrete": spaces.MultiDiscrete([3, 2]),
+        }
+    )
+
+
+def _continuous_only_hybrid_action_space() -> spaces.Dict:
+    return spaces.Dict(
+        {
+            "continuous": spaces.Box(
+                low=np.array([-1.0], dtype=np.float32),
+                high=np.array([1.0], dtype=np.float32),
+                dtype=np.float32,
+            ),
+            "discrete": spaces.MultiDiscrete(np.array([], dtype=np.int64)),
         }
     )
 
@@ -272,7 +299,9 @@ def test_hybrid_distribution_supports_state_dependent_continuous_std() -> None:
     assert log_std is None
 
     with th.no_grad():
-        assert action_net.continuous_log_std_net is not None
+        assert isinstance(action_net.continuous_net, th.nn.Linear)
+        assert isinstance(action_net.continuous_log_std_net, th.nn.Linear)
+        assert isinstance(action_net.discrete_net, th.nn.Linear)
         action_net.continuous_net.weight.fill_(0.0)
         action_net.continuous_net.bias.fill_(0.0)
         action_net.continuous_log_std_net.weight.copy_(th.tensor([[0.5, 0.0, 0.0]]))
@@ -297,6 +326,54 @@ def test_hybrid_distribution_supports_state_dependent_continuous_std() -> None:
     )
     th.testing.assert_close(distribution.continuous_log_std(), continuous_log_std)
     th.testing.assert_close(distribution.continuous_std(), continuous_log_std.exp())
+
+
+def test_hybrid_action_net_accepts_empty_continuous_branch_without_warning() -> None:
+    """Discrete-only hybrid spaces should not build zero-size linear layers."""
+    spec = make_hybrid_action_spec(_discrete_only_hybrid_action_space())
+    distribution = HybridActionDistribution(spec)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        action_net, log_std = distribution.proba_distribution_net(
+            latent_dim=OBSERVATION_SHAPE[0]
+        )
+
+    assert isinstance(action_net, HybridActionNet)
+    assert log_std is not None
+    assert log_std.shape == (0,)
+
+    latent = th.zeros((2, OBSERVATION_SHAPE[0]), dtype=th.float32)
+    action_params = action_net(latent)
+    distribution.proba_distribution(action_params=action_params, log_std=log_std)
+    actions = distribution.mode()
+
+    assert action_params.shape == (2, spec.discrete_logits_dim)
+    assert actions.shape == (2, spec.discrete_dim)
+
+
+def test_hybrid_action_net_accepts_empty_discrete_branch_without_warning() -> None:
+    """Continuous-only hybrid spaces should not build zero-size linear layers."""
+    spec = make_hybrid_action_spec(_continuous_only_hybrid_action_space())
+    distribution = HybridActionDistribution(spec)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        action_net, log_std = distribution.proba_distribution_net(
+            latent_dim=OBSERVATION_SHAPE[0]
+        )
+
+    assert isinstance(action_net, HybridActionNet)
+    assert log_std is not None
+    assert log_std.shape == (1,)
+
+    latent = th.zeros((2, OBSERVATION_SHAPE[0]), dtype=th.float32)
+    action_params = action_net(latent)
+    distribution.proba_distribution(action_params=action_params, log_std=log_std)
+    actions = distribution.mode()
+
+    assert action_params.shape == (2, spec.continuous_dim)
+    assert actions.shape == (2, spec.continuous_dim)
 
 
 def test_hybrid_action_ppo_learns_and_predicts_public_actions() -> None:
